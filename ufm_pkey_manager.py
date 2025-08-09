@@ -41,8 +41,14 @@ class UFMAPIClient:
             if not response.text.strip():
                 print("Authentication failed: Empty response from server")
                 return False
+            
+            try:
+                token_data = response.json()
+            except json.JSONDecodeError as e:
+                print(f"Authentication failed: Invalid JSON response - {e}")
+                print(f"Raw response: {response.text}")
+                return False
                 
-            token_data = response.json()
             self.token = token_data.get("access_token")
             
             if self.token:
