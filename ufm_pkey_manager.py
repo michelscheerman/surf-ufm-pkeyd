@@ -34,10 +34,16 @@ class UFMAPIClient:
         
         try:
             response = self.session.post(auth_url, json=auth_data)
+            print(f"Response status: {response.status_code}")
+            print(f"Response content: {response.text}")
             response.raise_for_status()
             
+            if not response.text.strip():
+                print("Authentication failed: Empty response from server")
+                return False
+                
             token_data = response.json()
-            self.token = token_data.get("token")
+            self.token = token_data.get("access_token")
             
             if self.token:
                 self.session.headers.update({"Authorization": f"Bearer {self.token}"})
