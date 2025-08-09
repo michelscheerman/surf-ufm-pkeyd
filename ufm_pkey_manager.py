@@ -241,8 +241,14 @@ def main():
     parser.add_argument("--host", required=True, help="UFM host address")
     parser.add_argument("--username", required=True, help="UFM username")
     parser.add_argument("--password", required=True, help="UFM password")
-    parser.add_argument("--pkey", required=True, help="Partition Key (e.g., 0x0a12)")
-    parser.add_argument("--guids", required=True, nargs="+", 
+    
+    # Action group - mutually exclusive
+    action_group = parser.add_mutually_exclusive_group(required=True)
+    action_group.add_argument("--list", action="store_true", 
+                             help="List all defined PKeys")
+    action_group.add_argument("--pkey", help="Partition Key (e.g., 0x0a12)")
+    
+    parser.add_argument("--guids", nargs="+", 
                        help="List of InfiniBand GUIDs to add (e.g., 0002c903000e0b72)")
     parser.add_argument("--membership", choices=["full", "limited"], default="full",
                        help="Membership type (default: full)")
@@ -257,17 +263,24 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate PKey
-    if not validate_pkey(args.pkey):
-        print(f"Error: Invalid PKey format '{args.pkey}'. Must be in format 0x0000-0x7fff")
-        sys.exit(1)
-    
-    # Validate GUIDs
-    invalid_guids = [guid for guid in args.guids if not validate_guid(guid)]
-    if invalid_guids:
-        print(f"Error: Invalid GUID format(s): {', '.join(invalid_guids)}")
-        print("GUIDs must be 16 hexadecimal characters")
-        sys.exit(1)
+    # Validate inputs only when not listing
+    if not args.list:
+        # Validate PKey
+        if not validate_pkey(args.pkey):
+            print(f"Error: Invalid PKey format '{args.pkey}'. Must be in format 0x0000-0x7fff")
+            sys.exit(1)
+        
+        # Validate GUIDs are required for PKey operations
+        if not args.guids:
+            print("Error: --guids is required when specifying --pkey")
+            sys.exit(1)
+            
+        # Validate GUIDs
+        invalid_guids = [guid for guid in args.guids if not validate_guid(guid)]
+        if invalid_guids:
+            print(f"Error: Invalid GUID format(s): {', '.join(invalid_guids)}")
+            print("GUIDs must be 16 hexadecimal characters")
+            sys.exit(1)
     
     # Create UFM client
     client = UFMAPIClient(
@@ -284,6 +297,16 @@ def main():
         sys.exit(1)
     
     print(f"Successfully authenticated with UFM at {client.base_url}")
+    
+    # Handle list operation
+    if args.list:
+        print("\nListing all defined PKeys...")
+        pkeys = client.list_pkeys(include_guids=True)
+        if pkeys:
+            print(json.dumps(pkeys, indent=2))
+        else:
+            print("Failed to retrieve PKeys or no PKeys found")
+        sys.exit(0)
     
     # Add GUIDs to PKey
     success = client.add_guids_to_pkey(
