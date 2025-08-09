@@ -7,6 +7,7 @@ import argparse
 from typing import List, Dict, Optional
 from urllib.parse import urljoin
 import urllib3
+from requests.auth import HTTPBasicAuth
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -24,8 +25,31 @@ class UFMAPIClient:
         self.token = None
         
     def authenticate(self) -> bool:
-        """Authenticate with UFM API and get access token"""
-        # Try different authentication endpoints
+        """Authenticate with UFM API using Basic Auth or token-based auth"""
+        # First try HTTP Basic Authentication
+        print("Trying HTTP Basic Authentication...")
+        self.session.auth = HTTPBasicAuth(self.username, self.password)
+        
+        # Test basic auth with a simple API call
+        test_url = urljoin(self.base_url, "/ufmRest/resources/pkeys")
+        try:
+            response = self.session.get(test_url, params={"guids_data": "false"})
+            print(f"Basic auth test - Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                print("Basic authentication successful!")
+                return True
+            elif response.status_code == 401:
+                print("Basic auth failed, trying token-based authentication...")
+            else:
+                print(f"Unexpected response: {response.text[:200]}...")
+        except requests.exceptions.RequestException as e:
+            print(f"Basic auth test failed: {e}")
+        
+        # Remove basic auth for token attempts
+        self.session.auth = None
+        
+        # Try token-based authentication endpoints
         auth_endpoints = [
             "/ufmRest/app/tokens",
             "/ufmRest/auth/login", 
@@ -42,7 +66,7 @@ class UFMAPIClient:
         
         for endpoint in auth_endpoints:
             auth_url = urljoin(self.base_url, endpoint)
-            print(f"Trying authentication endpoint: {auth_url}")
+            print(f"Trying token authentication endpoint: {auth_url}")
             
             try:
                 response = self.session.post(auth_url, json=auth_data, headers=headers)
@@ -81,7 +105,7 @@ class UFMAPIClient:
                 print(f"Request failed for {endpoint}: {e}")
                 continue
         
-        print("All authentication endpoints failed")
+        print("All authentication methods failed")
         return False
     
     def get_pkey(self, pkey: str, include_guids: bool = True) -> Optional[Dict]:
