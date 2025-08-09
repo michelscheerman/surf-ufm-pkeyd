@@ -25,42 +25,64 @@ class UFMAPIClient:
         
     def authenticate(self) -> bool:
         """Authenticate with UFM API and get access token"""
-        auth_url = urljoin(self.base_url, "/ufmRest/app/tokens")
+        # Try different authentication endpoints
+        auth_endpoints = [
+            "/ufmRest/app/tokens",
+            "/ufmRest/auth/login", 
+            "/ufmRest/resources/auth"
+        ]
         
         auth_data = {
             "username": self.username,
             "password": self.password
         }
         
-        try:
-            response = self.session.post(auth_url, json=auth_data)
-            print(f"Response status: {response.status_code}")
-            print(f"Response content: {response.text}")
-            response.raise_for_status()
-            
-            if not response.text.strip():
-                print("Authentication failed: Empty response from server")
-                return False
+        # Set Content-Type header for JSON request
+        headers = {"Content-Type": "application/json"}
+        
+        for endpoint in auth_endpoints:
+            auth_url = urljoin(self.base_url, endpoint)
+            print(f"Trying authentication endpoint: {auth_url}")
             
             try:
-                token_data = response.json()
-            except json.JSONDecodeError as e:
-                print(f"Authentication failed: Invalid JSON response - {e}")
-                print(f"Raw response: {response.text}")
-                return False
+                response = self.session.post(auth_url, json=auth_data, headers=headers)
+                print(f"Response status: {response.status_code}")
+                print(f"Response content: {response.text[:200]}...")  # Show first 200 chars
                 
-            self.token = token_data.get("access_token")
-            
-            if self.token:
-                self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-                return True
-            else:
-                print("Failed to get authentication token")
-                return False
+                if response.status_code == 404:
+                    print("Endpoint not found, trying next...")
+                    continue
+                    
+                response.raise_for_status()
                 
-        except requests.exceptions.RequestException as e:
-            print(f"Authentication failed: {e}")
-            return False
+                if not response.text.strip():
+                    print("Authentication failed: Empty response from server")
+                    continue
+                
+                try:
+                    token_data = response.json()
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON response - {e}")
+                    continue
+                    
+                # Try different token field names
+                token_fields = ["access_token", "token", "authToken", "sessionId"]
+                for field in token_fields:
+                    self.token = token_data.get(field)
+                    if self.token:
+                        print(f"Found token in field: {field}")
+                        self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+                        return True
+                
+                print("No valid token found in response")
+                print(f"Available fields: {list(token_data.keys())}")
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"Request failed for {endpoint}: {e}")
+                continue
+        
+        print("All authentication endpoints failed")
+        return False
     
     def get_pkey(self, pkey: str, include_guids: bool = True) -> Optional[Dict]:
         """Get information about a specific PKey"""
