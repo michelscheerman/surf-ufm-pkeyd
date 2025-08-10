@@ -147,12 +147,23 @@ class ETCDManager:
             result = self.client.read(prefix, recursive=True)
             
             found_keys = []
-            if result._children:
+            
+            # Handle different response formats
+            if hasattr(result, '_children') and result._children:
                 for child in result._children:
-                    if not child.dir:  # Only include actual keys, not directories
-                        found_keys.append((child.key, child.value, child))
-            elif not result.dir:
-                found_keys.append((result.key, result.value, result))
+                    # Check if child has dir attribute, otherwise assume it's a key
+                    if hasattr(child, 'dir') and not child.dir:
+                        value = getattr(child, 'value', None)
+                        found_keys.append((child.key, value, child))
+                    elif hasattr(child, 'key') and not hasattr(child, 'dir'):
+                        # If no dir attribute, assume it's a key
+                        value = getattr(child, 'value', None)
+                        found_keys.append((child.key, value, child))
+            elif hasattr(result, 'key'):
+                # Single key result
+                if not hasattr(result, 'dir') or not result.dir:
+                    value = getattr(result, 'value', None)
+                    found_keys.append((result.key, value, result))
             
             if not found_keys:
                 print(f"No keys found with prefix '{prefix}'")
@@ -162,9 +173,12 @@ class ETCDManager:
             for key, value, metadata in sorted(found_keys, key=lambda x: x[0]):
                 print(f"  {key}: {value}")
                 if show_metadata:
-                    print(f"    Created Index: {metadata.createdIndex}, Modified Index: {metadata.modifiedIndex}")
-                    if metadata.ttl:
-                        print(f"    TTL: {metadata.ttl}")
+                    created_idx = getattr(metadata, 'createdIndex', 'N/A')
+                    modified_idx = getattr(metadata, 'modifiedIndex', 'N/A')
+                    ttl = getattr(metadata, 'ttl', None)
+                    print(f"    Created Index: {created_idx}, Modified Index: {modified_idx}")
+                    if ttl:
+                        print(f"    TTL: {ttl}")
             
             return True
         except etcd.EtcdKeyNotFound:
@@ -172,6 +186,8 @@ class ETCDManager:
             return True
         except Exception as e:
             print(f"Error getting keys with prefix '{prefix}': {e}", file=sys.stderr)
+            # Debug information
+            print(f"Debug: Exception type: {type(e)}", file=sys.stderr)
             return False
     
     def put_key(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
