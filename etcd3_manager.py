@@ -75,22 +75,32 @@ class ETCDManager:
             result = self.client.read(prefix, recursive=True)
             
             keys = []
-            if result._children:
+            
+            # Handle different response formats
+            if hasattr(result, '_children') and result._children:
                 for child in result._children:
-                    if not child.dir:  # Only include actual keys, not directories
+                    # Check if child has dir attribute, otherwise assume it's a key
+                    if hasattr(child, 'dir') and not child.dir:
                         keys.append(child.key)
-                    else:
+                    elif hasattr(child, 'key') and not hasattr(child, 'dir'):
+                        # If no dir attribute, assume it's a key
+                        keys.append(child.key)
+                    elif hasattr(child, 'dir') and child.dir:
                         # If it's a directory, recursively collect keys
                         try:
                             dir_result = self.client.read(child.key, recursive=True)
-                            if dir_result._children:
+                            if hasattr(dir_result, '_children') and dir_result._children:
                                 for subchild in dir_result._children:
-                                    if not subchild.dir:
+                                    if hasattr(subchild, 'dir') and not subchild.dir:
+                                        keys.append(subchild.key)
+                                    elif hasattr(subchild, 'key'):
                                         keys.append(subchild.key)
                         except:
                             pass
-            elif not result.dir:
-                keys.append(result.key)
+            elif hasattr(result, 'key'):
+                # Single key result
+                if not hasattr(result, 'dir') or not result.dir:
+                    keys.append(result.key)
                 
             if keys:
                 print(f"Keys in etcd cluster{' (prefix: ' + prefix + ')' if prefix != '/' else ''}:")
@@ -104,6 +114,8 @@ class ETCDManager:
             return True
         except Exception as e:
             print(f"Error listing keys: {e}", file=sys.stderr)
+            # Debug information
+            print(f"Debug: Exception type: {type(e)}", file=sys.stderr)
             return False
     
     def get_key(self, key: str, show_metadata: bool = False) -> bool:
