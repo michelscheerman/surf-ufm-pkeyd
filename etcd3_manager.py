@@ -7,6 +7,7 @@ Supports operations: list all keys, get specific key, edit, and delete.
 """
 
 import argparse
+import getpass
 import json
 import sys
 from typing import Optional, List, Tuple, Any
@@ -269,7 +270,7 @@ Examples:
     parser.add_argument("--cert", help="Path to client certificate file")
     parser.add_argument("--key", help="Path to client private key file")
     parser.add_argument("--user", help="Username for authentication")
-    parser.add_argument("--password", help="Password for authentication")
+    parser.add_argument("--password", help="Password for authentication (will prompt if user provided but password not)")
     parser.add_argument("--timeout", type=int, help="Connection timeout in seconds")
     parser.add_argument("--protocol", default="https", help="Protocol to use (http or https, default: https)")
     
@@ -303,6 +304,11 @@ Examples:
     if args.hosts:
         hosts_list = [h.strip() for h in args.hosts.split(',')]
     
+    # Handle password prompting
+    password = args.password
+    if args.user and not password:
+        password = getpass.getpass(f"Password for user '{args.user}': ")
+    
     # Create ETCD manager
     etcd = ETCDManager(
         hosts=hosts_list,
@@ -313,7 +319,7 @@ Examples:
         cert_key=args.key,
         timeout=args.timeout,
         user=args.user,
-        password=args.password,
+        password=password,
         protocol=args.protocol
     )
     
