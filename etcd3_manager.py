@@ -19,7 +19,7 @@ except ImportError:
 
 
 class ETCDManager:
-    def __init__(self, hosts: Optional[List[str]] = None, host: str = "localhost", port: int = 4001, 
+    def __init__(self, hosts: Optional[List[str]] = None, host: str = "localhost", port: int = 2379, 
                  ca_cert: Optional[str] = None, cert_cert: Optional[str] = None, cert_key: Optional[str] = None,
                  timeout: Optional[int] = None, user: Optional[str] = None, 
                  password: Optional[str] = None, protocol: str = "https"):
@@ -257,14 +257,14 @@ Examples:
   %(prog)s --delete /config/app                                      # Delete specific key
   %(prog)s --delete-prefix /config                                   # Delete all keys with prefix
   %(prog)s --status                                                  # Show cluster status
-  %(prog)s --hosts "host1:4001,host2:4001,host3:4001" --ca-cert ca.pem --list  # Multi-server with CA cert
+  %(prog)s --hosts "host1:2379,host2:2379,host3:2379" --ca-cert ca.pem --list  # Multi-server with CA cert
         """
     )
     
     # Connection options
     parser.add_argument("--host", default="localhost", help="ETCD host (default: localhost)")
-    parser.add_argument("--hosts", help="Comma-separated list of ETCD hosts (e.g., host1:4001,host2:4001,host3:4001)")
-    parser.add_argument("--port", type=int, default=4001, help="ETCD port (default: 4001)")
+    parser.add_argument("--hosts", help="Comma-separated list of ETCD hosts (e.g., host1:2379,host2:2379,host3:2379)")
+    parser.add_argument("--port", type=int, default=2379, help="ETCD port (default: 2379)")
     parser.add_argument("--ca-cert", help="Path to CA certificate file")
     parser.add_argument("--cert", help="Path to client certificate file")
     parser.add_argument("--key", help="Path to client private key file")
