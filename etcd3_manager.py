@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ETCD3 Key-Value Manager (using python-etcd3)
+ETCD Key-Value Manager (using python-etcd)
 
-A script for managing key-value pairs in an etcd cluster using the python-etcd3 library.
+A script for managing key-value pairs in an etcd cluster using the python-etcd library.
 Supports operations: list all keys, get specific key, edit, and delete.
 """
 
@@ -12,54 +12,81 @@ import sys
 from typing import Optional, List, Tuple, Any
 
 try:
-    import etcd3
+    import etcd
 except ImportError:
-    print("Error: python-etcd3 library not found. Install with: pip install etcd3", file=sys.stderr)
+    print("Error: python-etcd library not found. Install with: pip install python-etcd", file=sys.stderr)
     sys.exit(1)
 
 
-class ETCD3Manager:
-    def __init__(self, host: str = "localhost", port: int = 2379, ca_cert: Optional[str] = None, 
+class ETCDManager:
+    def __init__(self, host: str = "localhost", port: int = 4001, ca_cert: Optional[str] = None, 
                  cert_cert: Optional[str] = None, cert_key: Optional[str] = None,
                  timeout: Optional[int] = None, user: Optional[str] = None, 
-                 password: Optional[str] = None):
-        """Initialize ETCD3 client with connection parameters"""
+                 password: Optional[str] = None, protocol: str = "http"):
+        """Initialize ETCD client with connection parameters"""
         try:
-            self.client = etcd3.client(
-                host=host,
-                port=port,
-                ca_cert=ca_cert,
-                cert_cert=cert_cert,
-                cert_key=cert_key,
-                timeout=timeout,
-                user=user,
-                password=password
-            )
-            # Test connection
-            self.client.status()
+            # python-etcd uses different parameter names and defaults
+            kwargs = {
+                'host': host,
+                'port': port,
+                'protocol': protocol,
+                'allow_reconnect': True,
+                'allow_redirect': False
+            }
+            
+            if ca_cert:
+                kwargs['ca_cert'] = ca_cert
+            if cert_cert and cert_key:
+                kwargs['cert'] = (cert_cert, cert_key)
+            if user and password:
+                kwargs['username'] = user
+                kwargs['password'] = password
+            if timeout:
+                kwargs['read_timeout'] = timeout
+                
+            self.client = etcd.Client(**kwargs)
+            # Test connection by trying to read root
+            self.client.read('/', timeout=5)
+        except etcd.EtcdKeyNotFound:
+            # This is expected for root path, connection is working
+            pass
         except Exception as e:
             print(f"Error connecting to etcd: {e}", file=sys.stderr)
             sys.exit(1)
     
-    def list_all_keys(self, prefix: str = "") -> bool:
+    def list_all_keys(self, prefix: str = "/") -> bool:
         """List all keys in the etcd cluster, optionally with a prefix"""
         try:
-            if prefix:
-                results = self.client.get_prefix(prefix)
-            else:
-                results = self.client.get_prefix("")
+            # For python-etcd, we need to do a recursive read
+            result = self.client.read(prefix, recursive=True)
             
             keys = []
-            for value, metadata in results:
-                key = metadata.key.decode('utf-8')
-                keys.append(key)
-            
+            if result._children:
+                for child in result._children:
+                    if not child.dir:  # Only include actual keys, not directories
+                        keys.append(child.key)
+                    else:
+                        # If it's a directory, recursively collect keys
+                        try:
+                            dir_result = self.client.read(child.key, recursive=True)
+                            if dir_result._children:
+                                for subchild in dir_result._children:
+                                    if not subchild.dir:
+                                        keys.append(subchild.key)
+                        except:
+                            pass
+            elif not result.dir:
+                keys.append(result.key)
+                
             if keys:
-                print(f"Keys in etcd cluster{' (prefix: ' + prefix + ')' if prefix else ''}:")
+                print(f"Keys in etcd cluster{' (prefix: ' + prefix + ')' if prefix != '/' else ''}:")
                 for key in sorted(keys):
                     print(f"  {key}")
             else:
-                print(f"No keys found{' with prefix: ' + prefix if prefix else ''}")
+                print(f"No keys found{' with prefix: ' + prefix if prefix != '/' else ''}")
+            return True
+        except etcd.EtcdKeyNotFound:
+            print(f"No keys found{' with prefix: ' + prefix if prefix != '/' else ''}")
             return True
         except Exception as e:
             print(f"Error listing keys: {e}", file=sys.stderr)
@@ -68,22 +95,21 @@ class ETCD3Manager:
     def get_key(self, key: str, show_metadata: bool = False) -> bool:
         """Get value for a specific key"""
         try:
-            value, metadata = self.client.get(key)
-            
-            if value is None:
-                print(f"Key '{key}' not found")
-                return True
+            result = self.client.read(key)
             
             print(f"Key: {key}")
-            print(f"Value: {value.decode('utf-8')}")
+            print(f"Value: {result.value}")
             
-            if show_metadata and metadata:
-                print(f"Create Revision: {metadata.create_revision}")
-                print(f"Mod Revision: {metadata.mod_revision}")
-                print(f"Version: {metadata.version}")
-                if metadata.lease_id:
-                    print(f"Lease ID: {metadata.lease_id}")
+            if show_metadata:
+                print(f"Modified Index: {result.modifiedIndex}")
+                print(f"Created Index: {result.createdIndex}")
+                if result.ttl:
+                    print(f"TTL: {result.ttl}")
+                print(f"Directory: {result.dir}")
             
+            return True
+        except etcd.EtcdKeyNotFound:
+            print(f"Key '{key}' not found")
             return True
         except Exception as e:
             print(f"Error getting key '{key}': {e}", file=sys.stderr)
@@ -92,13 +118,15 @@ class ETCD3Manager:
     def get_keys_with_prefix(self, prefix: str, show_metadata: bool = False) -> bool:
         """Get all keys and values with a specific prefix"""
         try:
-            results = self.client.get_prefix(prefix)
+            result = self.client.read(prefix, recursive=True)
             
             found_keys = []
-            for value, metadata in results:
-                key = metadata.key.decode('utf-8')
-                val = value.decode('utf-8') if value else ""
-                found_keys.append((key, val, metadata))
+            if result._children:
+                for child in result._children:
+                    if not child.dir:  # Only include actual keys, not directories
+                        found_keys.append((child.key, child.value, child))
+            elif not result.dir:
+                found_keys.append((result.key, result.value, result))
             
             if not found_keys:
                 print(f"No keys found with prefix '{prefix}'")
@@ -108,20 +136,27 @@ class ETCD3Manager:
             for key, value, metadata in sorted(found_keys, key=lambda x: x[0]):
                 print(f"  {key}: {value}")
                 if show_metadata:
-                    print(f"    Create Rev: {metadata.create_revision}, Mod Rev: {metadata.mod_revision}, Version: {metadata.version}")
+                    print(f"    Created Index: {metadata.createdIndex}, Modified Index: {metadata.modifiedIndex}")
+                    if metadata.ttl:
+                        print(f"    TTL: {metadata.ttl}")
             
+            return True
+        except etcd.EtcdKeyNotFound:
+            print(f"No keys found with prefix '{prefix}'")
             return True
         except Exception as e:
             print(f"Error getting keys with prefix '{prefix}': {e}", file=sys.stderr)
             return False
     
-    def put_key(self, key: str, value: str, lease_id: Optional[int] = None) -> bool:
+    def put_key(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
         """Set/update a key-value pair"""
         try:
-            self.client.put(key, value, lease=lease_id)
-            print(f"Successfully set key '{key}' to '{value}'")
-            if lease_id:
-                print(f"  with lease ID: {lease_id}")
+            if ttl:
+                self.client.write(key, value, ttl=ttl)
+                print(f"Successfully set key '{key}' to '{value}' with TTL {ttl}s")
+            else:
+                self.client.write(key, value)
+                print(f"Successfully set key '{key}' to '{value}'")
             return True
         except Exception as e:
             print(f"Error setting key '{key}': {e}", file=sys.stderr)
@@ -130,11 +165,11 @@ class ETCD3Manager:
     def delete_key(self, key: str) -> bool:
         """Delete a specific key"""
         try:
-            deleted = self.client.delete(key)
-            if deleted:
-                print(f"Successfully deleted key '{key}'")
-            else:
-                print(f"Key '{key}' not found or already deleted")
+            self.client.delete(key)
+            print(f"Successfully deleted key '{key}'")
+            return True
+        except etcd.EtcdKeyNotFound:
+            print(f"Key '{key}' not found")
             return True
         except Exception as e:
             print(f"Error deleting key '{key}': {e}", file=sys.stderr)
@@ -143,36 +178,51 @@ class ETCD3Manager:
     def delete_prefix(self, prefix: str) -> bool:
         """Delete all keys with a specific prefix"""
         try:
-            deleted_count = self.client.delete_prefix(prefix)
+            # python-etcd doesn't have delete_prefix, so we need to list keys first
+            result = self.client.read(prefix, recursive=True)
+            deleted_count = 0
+            
+            keys_to_delete = []
+            if result._children:
+                for child in result._children:
+                    if not child.dir:
+                        keys_to_delete.append(child.key)
+            elif not result.dir:
+                keys_to_delete.append(result.key)
+                
+            for key in keys_to_delete:
+                try:
+                    self.client.delete(key)
+                    deleted_count += 1
+                except etcd.EtcdKeyNotFound:
+                    pass
+                    
             if deleted_count > 0:
                 print(f"Successfully deleted {deleted_count} keys with prefix '{prefix}'")
             else:
                 print(f"No keys found with prefix '{prefix}' to delete")
+            return True
+        except etcd.EtcdKeyNotFound:
+            print(f"No keys found with prefix '{prefix}' to delete")
             return True
         except Exception as e:
             print(f"Error deleting keys with prefix '{prefix}': {e}", file=sys.stderr)
             return False
     
     def create_lease(self, ttl: int) -> Optional[int]:
-        """Create a lease with specified TTL in seconds"""
-        try:
-            lease = self.client.lease(ttl)
-            print(f"Created lease with ID: {lease.id} (TTL: {ttl}s)")
-            return lease.id
-        except Exception as e:
-            print(f"Error creating lease: {e}", file=sys.stderr)
-            return None
+        """Create a lease with specified TTL in seconds (not supported in python-etcd)"""
+        print(f"Note: python-etcd does not support separate lease creation. TTL is set per key.")
+        return ttl
     
     def get_cluster_status(self) -> bool:
         """Get etcd cluster status information"""
         try:
-            status = self.client.status()
+            # python-etcd v2 API has limited cluster status info
+            stats = self.client.stats
             print("Cluster Status:")
-            print(f"  Version: {status.version}")
-            print(f"  DB Size: {status.db_size} bytes")
-            print(f"  Leader ID: {status.leader}")
-            print(f"  Raft Index: {status.raft_index}")
-            print(f"  Raft Term: {status.raft_term}")
+            print(f"  Leader: {stats.leader}")
+            print(f"  Machine: {self.client.host}:{self.client.port}")
+            print(f"  Protocol: {self.client.protocol}")
             return True
         except Exception as e:
             print(f"Error getting cluster status: {e}", file=sys.stderr)
@@ -181,7 +231,7 @@ class ETCD3Manager:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Manage key-value pairs in an etcd cluster using python-etcd3",
+        description="Manage key-value pairs in an etcd cluster using python-etcd",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -199,13 +249,14 @@ Examples:
     
     # Connection options
     parser.add_argument("--host", default="localhost", help="ETCD host (default: localhost)")
-    parser.add_argument("--port", type=int, default=2379, help="ETCD port (default: 2379)")
+    parser.add_argument("--port", type=int, default=4001, help="ETCD port (default: 4001)")
     parser.add_argument("--ca-cert", help="Path to CA certificate file")
     parser.add_argument("--cert", help="Path to client certificate file")
     parser.add_argument("--key", help="Path to client private key file")
     parser.add_argument("--user", help="Username for authentication")
     parser.add_argument("--password", help="Password for authentication")
     parser.add_argument("--timeout", type=int, help="Connection timeout in seconds")
+    parser.add_argument("--protocol", default="http", help="Protocol to use (http or https, default: http)")
     
     # Operations (mutually exclusive)
     operations = parser.add_mutually_exclusive_group(required=True)
@@ -232,8 +283,8 @@ Examples:
     if args.prefix and not args.list:
         parser.error("--prefix can only be used with --list")
     
-    # Create ETCD3 manager
-    etcd = ETCD3Manager(
+    # Create ETCD manager
+    etcd = ETCDManager(
         host=args.host,
         port=args.port,
         ca_cert=args.ca_cert,
@@ -241,7 +292,8 @@ Examples:
         cert_key=args.key,
         timeout=args.timeout,
         user=args.user,
-        password=args.password
+        password=args.password,
+        protocol=args.protocol
     )
     
     # Execute operation
@@ -253,12 +305,7 @@ Examples:
     elif args.get_prefix:
         success = etcd.get_keys_with_prefix(args.get_prefix, show_metadata=args.metadata)
     elif args.put:
-        lease_id = None
-        if args.ttl:
-            lease_id = etcd.create_lease(args.ttl)
-            if lease_id is None:
-                sys.exit(1)
-        success = etcd.put_key(args.put, args.value, lease_id=lease_id)
+        success = etcd.put_key(args.put, args.value, ttl=args.ttl)
     elif args.delete:
         success = etcd.delete_key(args.delete)
     elif args.delete_prefix:
