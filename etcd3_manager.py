@@ -19,16 +19,29 @@ except ImportError:
 
 
 class ETCDManager:
-    def __init__(self, host: str = "localhost", port: int = 4001, ca_cert: Optional[str] = None, 
-                 cert_cert: Optional[str] = None, cert_key: Optional[str] = None,
+    def __init__(self, hosts: Optional[List[str]] = None, host: str = "localhost", port: int = 4001, 
+                 ca_cert: Optional[str] = None, cert_cert: Optional[str] = None, cert_key: Optional[str] = None,
                  timeout: Optional[int] = None, user: Optional[str] = None, 
-                 password: Optional[str] = None, protocol: str = "http"):
+                 password: Optional[str] = None, protocol: str = "https"):
         """Initialize ETCD client with connection parameters"""
         try:
-            # python-etcd uses different parameter names and defaults
+            # python-etcd supports multiple hosts via host tuple
+            if hosts:
+                # Convert hosts list to tuple of (host, port) tuples
+                host_tuples = []
+                for h in hosts:
+                    if ':' in h:
+                        host_part, port_part = h.split(':', 1)
+                        host_tuples.append((host_part, int(port_part)))
+                    else:
+                        host_tuples.append((h, port))
+                host_param = tuple(host_tuples)
+            else:
+                host_param = host
+            
             kwargs = {
-                'host': host,
-                'port': port,
+                'host': host_param,
+                'port': port if not hosts else None,  # Port is in host tuples when using multiple hosts
                 'protocol': protocol,
                 'allow_reconnect': True,
                 'allow_redirect': False
@@ -235,20 +248,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --list                                    # List all keys
-  %(prog)s --list --prefix /config                   # List keys with prefix
-  %(prog)s --get /config/app                         # Get specific key
-  %(prog)s --get-prefix /config --metadata           # Get all keys with prefix and metadata
-  %(prog)s --put /config/app --value "production"    # Set key-value pair
-  %(prog)s --put /config/temp --value "test" --ttl 60 # Set key with 60s TTL
-  %(prog)s --delete /config/app                      # Delete specific key
-  %(prog)s --delete-prefix /config                   # Delete all keys with prefix
-  %(prog)s --status                                  # Show cluster status
+  %(prog)s --list                                                    # List all keys
+  %(prog)s --list --prefix /config                                   # List keys with prefix
+  %(prog)s --get /config/app                                         # Get specific key
+  %(prog)s --get-prefix /config --metadata                           # Get all keys with prefix and metadata
+  %(prog)s --put /config/app --value "production"                    # Set key-value pair
+  %(prog)s --put /config/temp --value "test" --ttl 60                 # Set key with 60s TTL
+  %(prog)s --delete /config/app                                      # Delete specific key
+  %(prog)s --delete-prefix /config                                   # Delete all keys with prefix
+  %(prog)s --status                                                  # Show cluster status
+  %(prog)s --hosts "host1:4001,host2:4001,host3:4001" --ca-cert ca.pem --list  # Multi-server with CA cert
         """
     )
     
     # Connection options
     parser.add_argument("--host", default="localhost", help="ETCD host (default: localhost)")
+    parser.add_argument("--hosts", help="Comma-separated list of ETCD hosts (e.g., host1:4001,host2:4001,host3:4001)")
     parser.add_argument("--port", type=int, default=4001, help="ETCD port (default: 4001)")
     parser.add_argument("--ca-cert", help="Path to CA certificate file")
     parser.add_argument("--cert", help="Path to client certificate file")
@@ -256,7 +271,7 @@ Examples:
     parser.add_argument("--user", help="Username for authentication")
     parser.add_argument("--password", help="Password for authentication")
     parser.add_argument("--timeout", type=int, help="Connection timeout in seconds")
-    parser.add_argument("--protocol", default="http", help="Protocol to use (http or https, default: http)")
+    parser.add_argument("--protocol", default="https", help="Protocol to use (http or https, default: https)")
     
     # Operations (mutually exclusive)
     operations = parser.add_mutually_exclusive_group(required=True)
@@ -283,8 +298,14 @@ Examples:
     if args.prefix and not args.list:
         parser.error("--prefix can only be used with --list")
     
+    # Parse hosts if provided
+    hosts_list = None
+    if args.hosts:
+        hosts_list = [h.strip() for h in args.hosts.split(',')]
+    
     # Create ETCD manager
     etcd = ETCDManager(
+        hosts=hosts_list,
         host=args.host,
         port=args.port,
         ca_cert=args.ca_cert,
