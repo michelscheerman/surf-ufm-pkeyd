@@ -43,17 +43,31 @@ class ETCDManager:
         """Run etcdctl command and return success status, stdout, stderr"""
         cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)] + args
         
-        # Add authentication if provided
+        # Set up environment for etcdctl
+        env = os.environ.copy()
+        
+        # Force API version 3 (needed for authentication in many setups)
+        env["ETCDCTL_API"] = "3"
+        
+        # Add authentication if provided - try multiple methods
         if self.user and self.password:
+            # Method 1: Command line flag (current approach)
             cmd.extend(["--user", f"{self.user}:{self.password}"])
+            
+            # Method 2: Environment variables (as fallback)
+            env["ETCDCTL_USER"] = self.user
+            env["ETCDCTL_PASSWORD"] = self.password
         
         # Add TLS options if provided
         if self.ca_cert:
             cmd.extend(["--cacert", self.ca_cert])
+            env["ETCDCTL_CACERT"] = self.ca_cert
         if self.cert_file:
             cmd.extend(["--cert", self.cert_file])
+            env["ETCDCTL_CERT"] = self.cert_file
         if self.key_file:
             cmd.extend(["--key", self.key_file])
+            env["ETCDCTL_KEY"] = self.key_file
             
         if self.debug:
             # Print command for debugging (hide password)
@@ -68,7 +82,7 @@ class ETCDManager:
             
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, 
-                                  timeout=self.timeout, input=input_data)
+                                  timeout=self.timeout, input=input_data, env=env)
             if self.debug:
                 print(f"DEBUG: Return code: {result.returncode}", file=sys.stderr)
                 print(f"DEBUG: Stdout: '{result.stdout}'", file=sys.stderr)
@@ -98,8 +112,10 @@ class ETCDManager:
                 print(f"No keys found{' with prefix: ' + prefix if prefix else ''}")
             return True
         else:
-            # Check for authentication errors
-            if "authentication" in stderr.lower() or "permission" in stderr.lower() or "unauthorized" in stderr.lower():
+            # Check for specific authentication errors
+            if "authentication is not enabled" in stderr.lower():
+                print(f"Error: Authentication is not enabled on the etcd server. Try running without --user flag.", file=sys.stderr)
+            elif "authentication" in stderr.lower() or "permission" in stderr.lower() or "unauthorized" in stderr.lower():
                 print(f"Authentication failed: {stderr}", file=sys.stderr)
             else:
                 print(f"Error listing keys: {stderr}", file=sys.stderr)
