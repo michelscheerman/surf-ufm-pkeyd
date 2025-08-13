@@ -24,8 +24,9 @@ class ETCDManager:
                  port: int = 2379, ca_cert: Optional[str] = None, 
                  cert_file: Optional[str] = None, key_file: Optional[str] = None,
                  user: Optional[str] = None, password: Optional[str] = None,
-                 timeout: int = 30):
+                 timeout: int = 30, debug: bool = False):
         self.timeout = timeout
+        self.debug = debug
         
         if endpoints:
             self.endpoints = endpoints
@@ -40,7 +41,7 @@ class ETCDManager:
     
     def _run_etcdctl(self, args: list, input_data: Optional[str] = None) -> tuple[bool, str, str]:
         """Run etcdctl command and return success status, stdout, stderr"""
-        cmd = ["etcdctl", "--endpoints", ",".join(self.endpoints)] + args
+        cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)] + args
         
         # Add authentication if provided
         if self.user and self.password:
@@ -54,14 +55,29 @@ class ETCDManager:
         if self.key_file:
             cmd.extend(["--key", self.key_file])
             
+        if self.debug:
+            # Print command for debugging (hide password)
+            debug_cmd = cmd.copy()
+            for i, arg in enumerate(debug_cmd):
+                if arg.startswith("--user") and i + 1 < len(debug_cmd):
+                    user_pass = debug_cmd[i + 1]
+                    if ":" in user_pass:
+                        user, _ = user_pass.split(":", 1)
+                        debug_cmd[i + 1] = f"{user}:***"
+            print(f"DEBUG: Running command: {' '.join(debug_cmd)}", file=sys.stderr)
+            
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, 
                                   timeout=self.timeout, input=input_data)
+            if self.debug:
+                print(f"DEBUG: Return code: {result.returncode}", file=sys.stderr)
+                print(f"DEBUG: Stdout: '{result.stdout}'", file=sys.stderr)
+                print(f"DEBUG: Stderr: '{result.stderr}'", file=sys.stderr)
             return result.returncode == 0, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
             return False, "", "Command timed out"
         except FileNotFoundError:
-            return False, "", "etcdctl command not found. Please install etcd client."
+            return False, "", "etcdctl command not found at /opt/etcd/current/etcdctl. Please install etcd client."
     
     def list_all_keys(self, prefix: str = "") -> bool:
         """List all keys in the etcd cluster, optionally with a prefix"""
@@ -82,7 +98,11 @@ class ETCDManager:
                 print(f"No keys found{' with prefix: ' + prefix if prefix else ''}")
             return True
         else:
-            print(f"Error listing keys: {stderr}", file=sys.stderr)
+            # Check for authentication errors
+            if "authentication" in stderr.lower() or "permission" in stderr.lower() or "unauthorized" in stderr.lower():
+                print(f"Authentication failed: {stderr}", file=sys.stderr)
+            else:
+                print(f"Error listing keys: {stderr}", file=sys.stderr)
             return False
     
     def get_key(self, key: str, show_metadata: bool = False) -> bool:
@@ -276,7 +296,7 @@ class ETCDManager:
         print(f"Watching {'prefix' if prefix else 'key'} '{key}' for changes... (Press Ctrl+C to stop)")
         
         try:
-            cmd = ["etcdctl", "--endpoints", ",".join(self.endpoints)] + cmd_args
+            cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)] + cmd_args
             
             # Add authentication if provided
             if self.user and self.password:
@@ -390,6 +410,7 @@ Examples:
     parser.add_argument("--ttl", type=int, help="TTL in seconds for put operation (creates lease)")
     parser.add_argument("--watch-timeout", type=int, help="Timeout for watch operation in seconds")
     parser.add_argument("--lease-keys", action="store_true", help="Show keys attached to lease (use with --lease-timetolive)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug output to see etcdctl commands and responses")
     
     args = parser.parse_args()
     
@@ -420,7 +441,8 @@ Examples:
         key_file=args.key_file,
         user=args.user,
         password=password,
-        timeout=args.timeout
+        timeout=args.timeout,
+        debug=args.debug
     )
     
     # Execute operation
