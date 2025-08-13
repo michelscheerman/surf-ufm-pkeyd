@@ -41,17 +41,16 @@ class ETCDManager:
     
     def _run_etcdctl(self, args: list, input_data: Optional[str] = None) -> tuple[bool, str, str]:
         """Run etcdctl command and return success status, stdout, stderr"""
-        cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)] + args
+        # Build command in the order: etcdctl --endpoints <endpoint> [auth flags] [tls flags] <command> <args>
+        # This matches the working example format
+        cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)]
         
-        # Set up environment for etcdctl
-        env = os.environ.copy()
-        
-        # Force API version 2 (based on working example)
-        env["ETCDCTL_API"] = "2"
-        
-        # Add authentication if provided - use v2 API format
-        if self.user and self.password:
-            cmd.extend(["--username", self.user, "--password", self.password])
+        # Add authentication before the command (matching working example)  
+        if self.user:
+            cmd.extend(["--username", self.user])
+            # Only add --password if password is provided, otherwise etcdctl will prompt
+            if self.password:
+                cmd.extend(["--password", self.password])
         
         # Add TLS options if provided - use command line flags only to avoid conflicts
         if self.ca_cert:
@@ -60,6 +59,15 @@ class ETCDManager:
             cmd.extend(["--cert", self.cert_file])
         if self.key_file:
             cmd.extend(["--key", self.key_file])
+            
+        # Add the actual command and its arguments
+        cmd.extend(args)
+        
+        # Set up environment for etcdctl
+        env = os.environ.copy()
+        
+        # Force API version 2 (based on working example)
+        env["ETCDCTL_API"] = "2"
             
         if self.debug:
             # Print command for debugging (hide password)
@@ -70,13 +78,23 @@ class ETCDManager:
             print(f"DEBUG: Running command: {' '.join(debug_cmd)}", file=sys.stderr)
             
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, 
-                                  timeout=self.timeout, input=input_data, env=env)
+            # If no password provided, allow interactive password prompt
+            if self.user and not self.password:
+                result = subprocess.run(cmd, text=True, timeout=self.timeout, 
+                                      input=input_data, env=env)
+                stdout = getattr(result, 'stdout', '')
+                stderr = getattr(result, 'stderr', '')
+            else:
+                result = subprocess.run(cmd, capture_output=True, text=True, 
+                                      timeout=self.timeout, input=input_data, env=env)
+                stdout = result.stdout
+                stderr = result.stderr
+                
             if self.debug:
                 print(f"DEBUG: Return code: {result.returncode}", file=sys.stderr)
-                print(f"DEBUG: Stdout: '{result.stdout}'", file=sys.stderr)
-                print(f"DEBUG: Stderr: '{result.stderr}'", file=sys.stderr)
-            return result.returncode == 0, result.stdout, result.stderr
+                print(f"DEBUG: Stdout: '{stdout}'", file=sys.stderr)
+                print(f"DEBUG: Stderr: '{stderr}'", file=sys.stderr)
+            return result.returncode == 0, stdout, stderr
         except subprocess.TimeoutExpired:
             return False, "", "Command timed out"
         except FileNotFoundError:
@@ -314,6 +332,7 @@ Examples:
     parser.add_argument("--key-file", help="Path to client private key file")
     parser.add_argument("--user", help="Username for authentication")
     parser.add_argument("--password", help="Password for authentication (will prompt if user provided but password not)")
+    parser.add_argument("--prompt-password", action="store_true", help="Let etcdctl prompt for password (more secure, matches working example)")
     parser.add_argument("--timeout", type=int, default=30, help="Connection timeout in seconds (default: 30)")
     
     # Operations (mutually exclusive)
@@ -355,8 +374,11 @@ Examples:
     
     # Handle password prompting
     password = args.password
-    if args.user and not password:
+    if args.user and not password and not args.prompt_password:
         password = getpass.getpass(f"Password for user '{args.user}': ")
+    elif args.prompt_password:
+        # Let etcdctl prompt for password - don't provide it via command line
+        password = None
     
     # Create ETCD manager
     etcd = ETCDManager(
