@@ -49,25 +49,17 @@ class ETCDManager:
         # Force API version 3 (needed for authentication in many setups)
         env["ETCDCTL_API"] = "3"
         
-        # Add authentication if provided - try multiple methods
+        # Add authentication if provided - use command line flags only to avoid conflicts
         if self.user and self.password:
-            # Method 1: Command line flag (current approach)
             cmd.extend(["--user", f"{self.user}:{self.password}"])
-            
-            # Method 2: Environment variables (as fallback)
-            env["ETCDCTL_USER"] = self.user
-            env["ETCDCTL_PASSWORD"] = self.password
         
-        # Add TLS options if provided
+        # Add TLS options if provided - use command line flags only to avoid conflicts
         if self.ca_cert:
             cmd.extend(["--cacert", self.ca_cert])
-            env["ETCDCTL_CACERT"] = self.ca_cert
         if self.cert_file:
             cmd.extend(["--cert", self.cert_file])
-            env["ETCDCTL_CERT"] = self.cert_file
         if self.key_file:
             cmd.extend(["--key", self.key_file])
-            env["ETCDCTL_KEY"] = self.key_file
             
         if self.debug:
             # Print command for debugging (hide password)
