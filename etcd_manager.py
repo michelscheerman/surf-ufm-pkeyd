@@ -78,17 +78,21 @@ class ETCDManager:
             print(f"DEBUG: Running command: {' '.join(debug_cmd)}", file=sys.stderr)
             
         try:
-            # If no password provided, allow interactive password prompt
+            # For interactive password, we need to use Popen for better control
             if self.user and not self.password:
-                result = subprocess.run(cmd, text=True, timeout=self.timeout, 
-                                      input=input_data, env=env)
-                stdout = getattr(result, 'stdout', '')
-                stderr = getattr(result, 'stderr', '')
+                import sys
+                process = subprocess.Popen(cmd, stdin=sys.stdin, stdout=subprocess.PIPE, 
+                                         stderr=subprocess.PIPE, text=True, env=env)
+                stdout, stderr = process.communicate(input=input_data)
+                result = process
             else:
                 result = subprocess.run(cmd, capture_output=True, text=True, 
                                       timeout=self.timeout, input=input_data, env=env)
                 stdout = result.stdout
                 stderr = result.stderr
+            
+            stdout = stdout or ''
+            stderr = stderr or ''
                 
             if self.debug:
                 print(f"DEBUG: Return code: {result.returncode}", file=sys.stderr)
