@@ -46,12 +46,12 @@ class ETCDManager:
         # Set up environment for etcdctl
         env = os.environ.copy()
         
-        # Force API version 3 (needed for authentication in many setups)
-        env["ETCDCTL_API"] = "3"
+        # Force API version 2 (based on working example)
+        env["ETCDCTL_API"] = "2"
         
-        # Add authentication if provided - use command line flags only to avoid conflicts
+        # Add authentication if provided - use v2 API format
         if self.user and self.password:
-            cmd.extend(["--user", f"{self.user}:{self.password}"])
+            cmd.extend(["--username", self.user, "--password", self.password])
         
         # Add TLS options if provided - use command line flags only to avoid conflicts
         if self.ca_cert:
@@ -65,11 +65,8 @@ class ETCDManager:
             # Print command for debugging (hide password)
             debug_cmd = cmd.copy()
             for i, arg in enumerate(debug_cmd):
-                if arg.startswith("--user") and i + 1 < len(debug_cmd):
-                    user_pass = debug_cmd[i + 1]
-                    if ":" in user_pass:
-                        user, _ = user_pass.split(":", 1)
-                        debug_cmd[i + 1] = f"{user}:***"
+                if arg == "--password" and i + 1 < len(debug_cmd):
+                    debug_cmd[i + 1] = "***"
             print(f"DEBUG: Running command: {' '.join(debug_cmd)}", file=sys.stderr)
             
         try:
@@ -87,11 +84,10 @@ class ETCDManager:
     
     def list_all_keys(self, prefix: str = "") -> bool:
         """List all keys in the etcd cluster, optionally with a prefix"""
-        cmd_args = ["get", "--prefix", "--keys-only"]
         if prefix:
-            cmd_args.append(prefix)
+            cmd_args = ["ls", prefix]
         else:
-            cmd_args.append("")
+            cmd_args = ["ls", "/"]
             
         success, stdout, stderr = self._run_etcdctl(cmd_args)
         if success:
@@ -116,37 +112,17 @@ class ETCDManager:
     def get_key(self, key: str, show_metadata: bool = False) -> bool:
         """Get value for a specific key"""
         cmd_args = ["get", key]
-        if show_metadata:
-            cmd_args.append("--write-out=json")
+        # Note: API v2 doesn't support --write-out=json metadata format
             
         success, stdout, stderr = self._run_etcdctl(cmd_args)
         if success:
-            if show_metadata and stdout.strip():
-                try:
-                    data = json.loads(stdout)
-                    if data.get('kvs'):
-                        kv = data['kvs'][0]
-                        print(f"Key: {kv['key']}")
-                        print(f"Value: {kv['value']}")
-                        print(f"Created Revision: {kv.get('create_revision', 'N/A')}")
-                        print(f"Modified Revision: {kv.get('mod_revision', 'N/A')}")
-                        print(f"Version: {kv.get('version', 'N/A')}")
-                        if kv.get('lease'):
-                            print(f"Lease: {kv['lease']}")
-                    else:
-                        print(f"Key '{key}' not found")
-                except json.JSONDecodeError:
-                    print(f"Error parsing metadata for key '{key}'")
+            if stdout.strip():
+                print(f"Key: {key}")
+                print(f"Value: {stdout.strip()}")
+                if show_metadata:
+                    print("Note: Detailed metadata not available in API v2")
             else:
-                lines = stdout.strip().split('\n')
-                if len(lines) >= 2:
-                    print(f"Key: {lines[0]}")
-                    print(f"Value: {lines[1]}")
-                elif len(lines) == 1 and lines[0]:
-                    print(f"Key: {key}")
-                    print(f"Value: {lines[0]}")
-                else:
-                    print(f"Key '{key}' not found")
+                print(f"Key '{key}' not found")
             return True
         else:
             print(f"Error getting key '{key}': {stderr}", file=sys.stderr)
@@ -154,40 +130,28 @@ class ETCDManager:
     
     def get_keys_with_prefix(self, prefix: str, show_metadata: bool = False) -> bool:
         """Get all keys and values with a specific prefix"""
-        cmd_args = ["get", "--prefix", prefix]
-        if show_metadata:
-            cmd_args.append("--write-out=json")
+        # API v2 uses ls to list keys, then individual get commands for values
+        cmd_args = ["ls", prefix]
             
         success, stdout, stderr = self._run_etcdctl(cmd_args)
         if success:
-            if show_metadata and stdout.strip():
-                try:
-                    data = json.loads(stdout)
-                    if data.get('kvs'):
-                        print(f"Keys with prefix '{prefix}':")
-                        for kv in data['kvs']:
-                            print(f"  {kv['key']}: {kv['value']}")
-                            if show_metadata:
-                                print(f"    Created: {kv.get('create_revision', 'N/A')}, Modified: {kv.get('mod_revision', 'N/A')}, Version: {kv.get('version', 'N/A')}")
-                                if kv.get('lease'):
-                                    print(f"    Lease: {kv['lease']}")
-                    else:
-                        print(f"No keys found with prefix '{prefix}'")
-                except json.JSONDecodeError:
-                    print(f"Error parsing metadata for prefix '{prefix}'")
-            else:
-                lines = stdout.strip().split('\n')
-                if lines and lines[0]:
+            if stdout.strip():
+                keys = [key.strip() for key in stdout.strip().split('\n') if key.strip()]
+                if keys:
                     print(f"Keys with prefix '{prefix}':")
-                    i = 0
-                    while i < len(lines):
-                        if i + 1 < len(lines):
-                            print(f"  {lines[i]}: {lines[i+1]}")
-                            i += 2
+                    for key in keys:
+                        # Get value for each key
+                        get_success, get_stdout, get_stderr = self._run_etcdctl(["get", key])
+                        if get_success:
+                            print(f"  {key}: {get_stdout.strip()}")
                         else:
-                            break
+                            print(f"  {key}: <error getting value>")
+                    if show_metadata:
+                        print("Note: Detailed metadata not available in API v2")
                 else:
                     print(f"No keys found with prefix '{prefix}'")
+            else:
+                print(f"No keys found with prefix '{prefix}'")
             return True
         else:
             print(f"Error getting keys with prefix '{prefix}': {stderr}", file=sys.stderr)
@@ -195,109 +159,64 @@ class ETCDManager:
     
     def put_key(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
         """Set/update a key-value pair, optionally with TTL"""
+        cmd_args = ["set", key, value]  # API v2 uses 'set' instead of 'put'
         if ttl:
-            # Create lease first
-            lease_success, lease_stdout, lease_stderr = self._run_etcdctl(["lease", "grant", str(ttl)])
-            if not lease_success:
-                print(f"Error creating lease: {lease_stderr}", file=sys.stderr)
-                return False
+            cmd_args.extend(["--ttl", str(ttl)])
             
-            # Extract lease ID from output (format: "lease <id> granted with TTL(<ttl>s)")
-            try:
-                lease_id = lease_stdout.strip().split()[1]
-                success, stdout, stderr = self._run_etcdctl(["put", key, value, f"--lease={lease_id}"])
-                if success:
-                    print(f"Successfully set key '{key}' to '{value}' with TTL {ttl}s")
-                    return True
-                else:
-                    print(f"Error setting key '{key}' with lease: {stderr}", file=sys.stderr)
-                    return False
-            except (IndexError, ValueError):
-                print(f"Error parsing lease ID from: {lease_stdout}", file=sys.stderr)
-                return False
+        success, stdout, stderr = self._run_etcdctl(cmd_args)
+        if success:
+            print(f"Successfully set key '{key}' to '{value}'" + (f" with TTL {ttl}s" if ttl else ""))
+            return True
         else:
-            success, stdout, stderr = self._run_etcdctl(["put", key, value])
-            if success:
-                print(f"Successfully set key '{key}' to '{value}'")
-                return True
-            else:
-                print(f"Error setting key '{key}': {stderr}", file=sys.stderr)
-                return False
+            print(f"Error setting key '{key}': {stderr}", file=sys.stderr)
+            return False
     
     def delete_key(self, key: str) -> bool:
         """Delete a key"""
-        success, stdout, stderr = self._run_etcdctl(["del", key])
+        success, stdout, stderr = self._run_etcdctl(["rm", key])  # API v2 uses 'rm' instead of 'del'
         if success:
-            deleted_count = stdout.strip()
-            if deleted_count == "1":
-                print(f"Successfully deleted key '{key}'")
-            else:
-                print(f"Key '{key}' not found")
+            print(f"Successfully deleted key '{key}'")
             return True
         else:
-            print(f"Error deleting key '{key}': {stderr}", file=sys.stderr)
+            if "key not found" in stderr.lower():
+                print(f"Key '{key}' not found")
+            else:
+                print(f"Error deleting key '{key}': {stderr}", file=sys.stderr)
             return False
     
     def delete_prefix(self, prefix: str) -> bool:
         """Delete all keys with a specific prefix"""
-        success, stdout, stderr = self._run_etcdctl(["del", "--prefix", prefix])
+        success, stdout, stderr = self._run_etcdctl(["rm", "--recursive", prefix])  # API v2 uses '--recursive'
         if success:
-            deleted_count = int(stdout.strip() or "0")
-            if deleted_count > 0:
-                print(f"Successfully deleted {deleted_count} keys with prefix '{prefix}'")
-            else:
-                print(f"No keys found with prefix '{prefix}' to delete")
+            print(f"Successfully deleted keys with prefix '{prefix}'")
             return True
         else:
-            print(f"Error deleting keys with prefix '{prefix}': {stderr}", file=sys.stderr)
+            if "key not found" in stderr.lower():
+                print(f"No keys found with prefix '{prefix}' to delete")
+            else:
+                print(f"Error deleting keys with prefix '{prefix}': {stderr}", file=sys.stderr)
             return False
     
     def create_lease(self, ttl: int) -> Optional[str]:
         """Create a lease with specified TTL in seconds"""
-        success, stdout, stderr = self._run_etcdctl(["lease", "grant", str(ttl)])
-        if success:
-            try:
-                # Extract lease ID from output (format: "lease <id> granted with TTL(<ttl>s)")
-                lease_id = stdout.strip().split()[1]
-                print(f"Created lease {lease_id} with TTL {ttl}s")
-                return lease_id
-            except (IndexError, ValueError):
-                print(f"Error parsing lease ID from: {stdout}", file=sys.stderr)
-                return None
-        else:
-            print(f"Error creating lease: {stderr}", file=sys.stderr)
-            return None
+        print("Error: Lease functionality is not available in etcd API v2", file=sys.stderr)
+        return None
     
     def revoke_lease(self, lease_id: str) -> bool:
         """Revoke a lease"""
-        success, stdout, stderr = self._run_etcdctl(["lease", "revoke", lease_id])
-        if success:
-            print(f"Successfully revoked lease {lease_id}")
-            return True
-        else:
-            print(f"Error revoking lease {lease_id}: {stderr}", file=sys.stderr)
-            return False
+        print("Error: Lease functionality is not available in etcd API v2", file=sys.stderr)
+        return False
     
     def lease_timetolive(self, lease_id: str, show_keys: bool = False) -> bool:
         """Get lease time-to-live information"""
-        cmd_args = ["lease", "timetolive", lease_id]
-        if show_keys:
-            cmd_args.append("--keys")
-            
-        success, stdout, stderr = self._run_etcdctl(cmd_args)
-        if success:
-            print(f"Lease {lease_id} info:")
-            print(stdout.strip())
-            return True
-        else:
-            print(f"Error getting lease info for {lease_id}: {stderr}", file=sys.stderr)
-            return False
+        print("Error: Lease functionality is not available in etcd API v2", file=sys.stderr)
+        return False
     
     def watch_key(self, key: str, prefix: bool = False, timeout_seconds: Optional[int] = None) -> bool:
         """Watch for changes on a key or prefix"""
         cmd_args = ["watch"]
         if prefix:
-            cmd_args.extend(["--prefix", key])
+            cmd_args.extend(["--recursive", key])  # API v2 uses --recursive instead of --prefix
         else:
             cmd_args.append(key)
             
@@ -352,7 +271,7 @@ class ETCDManager:
     
     def get_cluster_status(self) -> bool:
         """Get etcd cluster status information"""
-        success, stdout, stderr = self._run_etcdctl(["endpoint", "status", "--write-out=table"])
+        success, stdout, stderr = self._run_etcdctl(["cluster-health"])  # API v2 uses cluster-health
         if success:
             print("Cluster Status:")
             print(stdout)
