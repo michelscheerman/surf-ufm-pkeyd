@@ -108,7 +108,9 @@ class PKeyMonitor:
             if isinstance(host_guids, list):
                 for guid in host_guids:
                     if validate_guid(guid):
-                        all_guids.append(guid)
+                        # Strip 0x prefix for UFM API
+                        clean_guid = guid[2:] if guid.startswith('0x') else guid
+                        all_guids.append(clean_guid)
                     else:
                         self.logger.warning(f"Invalid host GUID format: {guid}")
             
@@ -117,7 +119,9 @@ class PKeyMonitor:
             if isinstance(vf_guids, list):
                 for guid in vf_guids:
                     if validate_guid(guid):
-                        all_guids.append(guid)
+                        # Strip 0x prefix for UFM API
+                        clean_guid = guid[2:] if guid.startswith('0x') else guid
+                        all_guids.append(clean_guid)
                     else:
                         self.logger.warning(f"Invalid VF GUID format: {guid}")
             
