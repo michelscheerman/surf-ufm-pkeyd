@@ -186,8 +186,9 @@ class PKeyMonitor:
             self.logger.debug("No PKeys found in etcd")
             return
         
-        # Process each key
-        keys = [key.strip() for key in stdout.strip().split('\n') if key.strip()]
+        # Process each key - filter out password prompts and invalid keys
+        keys = [key.strip() for key in stdout.strip().split('\n') 
+                if key.strip() and not key.strip().endswith(':') and key.strip().startswith('/')]
         new_keys = [key for key in keys if key not in self.processed_keys]
         
         if new_keys:

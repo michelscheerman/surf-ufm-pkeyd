@@ -27,6 +27,7 @@ class ETCDManager:
                  timeout: int = 30, debug: bool = False):
         self.timeout = timeout
         self.debug = debug
+        self._cached_password = None  # Cache password after first prompt
         
         if endpoints:
             self.endpoints = endpoints
@@ -48,9 +49,10 @@ class ETCDManager:
         # Add authentication before the command (matching working example)  
         if self.user:
             cmd.extend(["--username", self.user])
-            # Only add --password if password is provided, otherwise etcdctl will prompt
-            if self.password:
-                cmd.extend(["--password", self.password])
+            # Use cached password if available, otherwise use provided password
+            password_to_use = self._cached_password or self.password
+            if password_to_use:
+                cmd.extend(["--password", password_to_use])
         
         # Add TLS options if provided - use command line flags only to avoid conflicts
         if self.ca_cert:
@@ -79,11 +81,28 @@ class ETCDManager:
             
         try:
             # For interactive password, we need to use Popen for better control
-            if self.user and not self.password:
-                process = subprocess.Popen(cmd, stdin=sys.stdin, stdout=subprocess.PIPE, 
-                                         stderr=subprocess.PIPE, text=True, env=env)
-                stdout, stderr = process.communicate(input=input_data)
-                result = process
+            if self.user and not (self._cached_password or self.password):
+                # Use getpass for secure password entry
+                import getpass
+                if not self._cached_password:
+                    self._cached_password = getpass.getpass(f"ETCD password for user '{self.user}': ")
+                # Rebuild command with cached password
+                cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)]
+                if self.user:
+                    cmd.extend(["--username", self.user])
+                    cmd.extend(["--password", self._cached_password])
+                if self.ca_cert:
+                    cmd.extend(["--cacert", self.ca_cert])
+                if self.cert_file:
+                    cmd.extend(["--cert", self.cert_file])
+                if self.key_file:
+                    cmd.extend(["--key", self.key_file])
+                cmd.extend(args)
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, 
+                                      timeout=self.timeout, input=input_data, env=env)
+                stdout = result.stdout
+                stderr = result.stderr
             else:
                 result = subprocess.run(cmd, capture_output=True, text=True, 
                                       timeout=self.timeout, input=input_data, env=env)
