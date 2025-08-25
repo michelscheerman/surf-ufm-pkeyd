@@ -80,7 +80,6 @@ class ETCDManager:
         try:
             # For interactive password, we need to use Popen for better control
             if self.user and not self.password:
-                import sys
                 process = subprocess.Popen(cmd, stdin=sys.stdin, stdout=subprocess.PIPE, 
                                          stderr=subprocess.PIPE, text=True, env=env)
                 stdout, stderr = process.communicate(input=input_data)
