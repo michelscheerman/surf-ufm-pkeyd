@@ -35,6 +35,7 @@ class PKeyMonitor:
         self.running = False
         self.processed_keys: Set[str] = set()
         self.last_known_etcd_keys: Optional[Set[str]] = None
+        self.debug = etcd_config.get('debug', False)
         
         # Initialize ETCD manager
         self.etcd = ETCDManager(
@@ -169,6 +170,9 @@ class PKeyMonitor:
                 existing_guid_strings = []
                 
                 # Handle different formats that UFM might return
+                if self.debug:
+                    self.logger.debug(f"PKey {pkey} existing_guids format: {type(existing_guids)}, content: {existing_guids}")
+                
                 if isinstance(existing_guids, list):
                     # List of strings or dicts
                     for guid_item in existing_guids:
@@ -176,15 +180,24 @@ class PKeyMonitor:
                             existing_guid_strings.append(guid_item.lower())
                         elif isinstance(guid_item, dict):
                             # Extract GUID from dict (common UFM format)
-                            guid_value = guid_item.get('guid') or guid_item.get('GUID') or guid_item.get('value')
+                            guid_value = (guid_item.get('guid') or 
+                                        guid_item.get('GUID') or 
+                                        guid_item.get('value') or
+                                        guid_item.get('port_guid') or
+                                        guid_item.get('node_guid'))
                             if guid_value and isinstance(guid_value, str):
                                 existing_guid_strings.append(guid_value.lower())
+                            elif self.debug:
+                                self.logger.debug(f"Could not extract GUID from dict: {guid_item}")
+                        else:
+                            if self.debug:
+                                self.logger.debug(f"Unknown list item type: {type(guid_item)}, value: {guid_item}")
                 elif isinstance(existing_guids, dict):
-                    # Handle case where guids is a dict itself
+                    # Handle case where guids is a dict itself  
                     for key, value in existing_guids.items():
-                        if isinstance(value, str):
+                        if isinstance(value, str) and len(value) >= 16:
                             existing_guid_strings.append(value.lower())
-                        elif isinstance(key, str) and key.lower() not in ['count', 'total', 'size']:
+                        elif isinstance(key, str) and len(key) >= 16 and key.lower() not in ['count', 'total', 'size']:
                             existing_guid_strings.append(key.lower())
                 
                 if existing_guid_strings:
@@ -217,7 +230,7 @@ class PKeyMonitor:
                     # Couldn't parse existing GUIDs, add all
                     new_guids = guids
                     remove_guids = []
-                    self.logger.warning(f"Could not parse existing GUIDs for PKey {pkey} (format: {type(existing_guids)}), adding all")
+                    self.logger.warning(f"Could not parse existing GUIDs for PKey {pkey} (found {len(existing_guid_strings)} valid GUIDs from {type(existing_guids)}), adding all")
             
             # Add only the new GUIDs to PKey
             if new_guids:
