@@ -51,11 +51,11 @@ class ETCDManager:
             # Use cached password if available, otherwise use provided password
             password_to_use = self._cached_password or self.password
             if password_to_use:
-                # API v2 uses --user username:password format
-                cmd.extend(["--user", f"{self.user}:{password_to_use}"])
+                # API v2 uses --username username:password format
+                cmd.extend(["--username", f"{self.user}:{password_to_use}"])
             else:
                 # No password available, etcdctl will prompt
-                cmd.extend(["--user", self.user])
+                cmd.extend(["--username", self.user])
         
         # Add TLS options if provided - use command line flags only to avoid conflicts
         if self.ca_cert:
@@ -78,7 +78,7 @@ class ETCDManager:
             # Print command for debugging (hide password)
             debug_cmd = cmd.copy()
             for i, arg in enumerate(debug_cmd):
-                if arg == "--user" and i + 1 < len(debug_cmd) and ":" in debug_cmd[i + 1]:
+                if arg == "--username" and i + 1 < len(debug_cmd) and ":" in debug_cmd[i + 1]:
                     # Hide password in username:password format
                     user_part = debug_cmd[i + 1].split(':')[0]
                     debug_cmd[i + 1] = f"{user_part}:***"
@@ -94,7 +94,7 @@ class ETCDManager:
                 # Rebuild command with cached password
                 cmd = ["/opt/etcd/current/etcdctl", "--endpoints", ",".join(self.endpoints)]
                 if self.user:
-                    cmd.extend(["--user", f"{self.user}:{self._cached_password}"])
+                    cmd.extend(["--username", f"{self.user}:{self._cached_password}"])
                 if self.ca_cert:
                     cmd.extend(["--cacert", self.ca_cert])
                 if self.cert_file:
