@@ -84,8 +84,18 @@ class PKeyMonitor:
                 self.logger.error(f"Invalid PKey format in key: {pkey}")
                 return None
             
-            # Parse JSON value
-            data = json.loads(value)
+            # Parse JSON value - handle both JSON and Python dict format
+            try:
+                data = json.loads(value)
+            except json.JSONDecodeError:
+                # Try parsing as Python literal (handles single quotes)
+                import ast
+                try:
+                    data = ast.literal_eval(value)
+                except (ValueError, SyntaxError) as e:
+                    self.logger.error(f"Failed to parse value as JSON or Python literal: {e}")
+                    return None
+            
             if not isinstance(data, dict):
                 self.logger.error(f"Expected dict in PKey data, got {type(data)}")
                 return None
