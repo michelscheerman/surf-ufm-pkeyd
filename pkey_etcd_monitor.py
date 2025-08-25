@@ -11,6 +11,7 @@ Value: {'host_guids': ['0x043f720300f55176'], 'vf_guids': ['0xc0cc200e00000000']
 """
 
 import argparse
+import getpass
 import json
 import logging
 import signal
@@ -286,6 +287,7 @@ Examples:
     etcd_group.add_argument("--etcd-key-file", help="Path to ETCD client key")
     etcd_group.add_argument("--etcd-user", help="ETCD username")
     etcd_group.add_argument("--etcd-password", help="ETCD password")
+    etcd_group.add_argument("--etcd-prompt-password", action="store_true", help="Let etcdctl prompt for password (more secure)")
     etcd_group.add_argument("--etcd-timeout", type=int, default=30, help="ETCD timeout (default: 30)")
     
     # UFM Configuration
@@ -313,6 +315,14 @@ Examples:
     if args.etcd_endpoints:
         etcd_endpoints = [e.strip() for e in args.etcd_endpoints.split(',')]
     
+    # Handle ETCD password prompting
+    etcd_password = args.etcd_password
+    if args.etcd_user and not etcd_password and not args.etcd_prompt_password:
+        etcd_password = getpass.getpass(f"ETCD password for user '{args.etcd_user}': ")
+    elif args.etcd_prompt_password:
+        # Let etcdctl prompt for password - don't provide it via command line
+        etcd_password = None
+    
     # Build configuration dictionaries
     etcd_config = {
         'endpoints': etcd_endpoints,
@@ -322,7 +332,7 @@ Examples:
         'cert_file': args.etcd_cert_file,
         'key_file': args.etcd_key_file,
         'user': args.etcd_user,
-        'password': args.etcd_password,
+        'password': etcd_password,
         'timeout': args.etcd_timeout,
         'debug': args.debug
     }
