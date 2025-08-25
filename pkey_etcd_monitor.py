@@ -165,9 +165,30 @@ class PKeyMonitor:
             else:
                 # PKey exists, check which GUIDs are already present
                 existing_guids = existing_pkey.get('guids', [])
+                existing_guid_strings = []
+                
+                # Handle different formats that UFM might return
                 if isinstance(existing_guids, list):
-                    # Convert existing GUIDs to set for comparison (normalize case)
-                    existing_guids_set = {guid.lower() for guid in existing_guids}
+                    # List of strings or dicts
+                    for guid_item in existing_guids:
+                        if isinstance(guid_item, str):
+                            existing_guid_strings.append(guid_item.lower())
+                        elif isinstance(guid_item, dict):
+                            # Extract GUID from dict (common UFM format)
+                            guid_value = guid_item.get('guid') or guid_item.get('GUID') or guid_item.get('value')
+                            if guid_value and isinstance(guid_value, str):
+                                existing_guid_strings.append(guid_value.lower())
+                elif isinstance(existing_guids, dict):
+                    # Handle case where guids is a dict itself
+                    for key, value in existing_guids.items():
+                        if isinstance(value, str):
+                            existing_guid_strings.append(value.lower())
+                        elif isinstance(key, str) and key.lower() not in ['count', 'total', 'size']:
+                            existing_guid_strings.append(key.lower())
+                
+                if existing_guid_strings:
+                    # Convert to set for comparison (normalize case)
+                    existing_guids_set = set(existing_guid_strings)
                     new_guids_set = {guid.lower() for guid in guids}
                     
                     # Find GUIDs that need to be added
@@ -180,9 +201,9 @@ class PKeyMonitor:
                     
                     self.logger.info(f"PKey {pkey} exists, adding {len(new_guids)} new GUIDs: {new_guids}")
                 else:
-                    # Couldn't get existing GUIDs, add all
+                    # Couldn't parse existing GUIDs, add all
                     new_guids = guids
-                    self.logger.warning(f"Could not check existing GUIDs for PKey {pkey}, adding all")
+                    self.logger.warning(f"Could not parse existing GUIDs for PKey {pkey} (format: {type(existing_guids)}), adding all")
             
             # Add only the new GUIDs to PKey
             if new_guids:
