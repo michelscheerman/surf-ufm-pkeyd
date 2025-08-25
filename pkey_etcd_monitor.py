@@ -285,6 +285,42 @@ class PKeyMonitor:
             self.logger.error(f"Error removing PKey {pkey} from UFM: {e}")
             return False
     
+    def report_unmanaged_pkeys(self, current_etcd_keys: Set[str]) -> None:
+        """Report PKeys that exist in UFM but are not managed through etcd"""
+        try:
+            # Get all PKeys from UFM
+            ufm_pkeys = self.ufm.list_pkeys(include_guids=False)
+            
+            if not ufm_pkeys:
+                self.logger.warning("Could not retrieve PKey list from UFM")
+                return
+            
+            # Extract PKey values from UFM response
+            ufm_pkey_values = set()
+            for pkey_info in ufm_pkeys:
+                if isinstance(pkey_info, dict):
+                    pkey_value = pkey_info.get('pkey') or pkey_info.get('partition_key')
+                    if pkey_value:
+                        ufm_pkey_values.add(pkey_value)
+            
+            # Extract PKey values from etcd keys (remove path prefix)
+            etcd_pkey_values = set()
+            for etcd_key in current_etcd_keys:
+                pkey = etcd_key.split('/')[-1]
+                if validate_pkey(pkey):
+                    etcd_pkey_values.add(pkey)
+            
+            # Find PKeys in UFM that are not managed by etcd
+            unmanaged_pkeys = ufm_pkey_values - etcd_pkey_values
+            
+            if unmanaged_pkeys:
+                self.logger.info(f"Found {len(unmanaged_pkeys)} PKey(s) in UFM not managed through etcd: {sorted(unmanaged_pkeys)}")
+            else:
+                self.logger.debug("All PKeys in UFM are managed through etcd")
+                
+        except Exception as e:
+            self.logger.error(f"Error reporting unmanaged PKeys: {e}")
+    
     def scan_pkeys(self) -> None:
         """Scan for PKeys in etcd and process new ones"""
         self.logger.debug("Scanning for PKeys in etcd...")
@@ -332,6 +368,9 @@ class PKeyMonitor:
         
         # Update the last known etcd state
         self.last_known_etcd_keys = current_etcd_keys
+        
+        # Report unmanaged PKeys (only on successful etcd response)
+        self.report_unmanaged_pkeys(current_etcd_keys)
         
         # Process new keys
         new_keys = [key for key in current_etcd_keys if key not in self.processed_keys]
