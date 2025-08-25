@@ -34,6 +34,7 @@ class PKeyMonitor:
         self.poll_interval = poll_interval
         self.running = False
         self.processed_keys: Set[str] = set()
+        self.last_known_etcd_keys: Optional[Set[str]] = None
         
         # Initialize ETCD manager
         self.etcd = ETCDManager(
@@ -195,14 +196,27 @@ class PKeyMonitor:
                     missing_guids = new_guids_set - existing_guids_set
                     new_guids = [guid for guid in guids if guid.lower() in missing_guids]
                     
-                    if not new_guids:
-                        self.logger.info(f"PKey {pkey} already has all required GUIDs, skipping")
-                        return True
+                    # Find GUIDs that need to be removed (exist in UFM but not in etcd)
+                    obsolete_guids = existing_guids_set - new_guids_set
+                    remove_guids = [guid for guid in existing_guid_strings if guid in obsolete_guids]
                     
-                    self.logger.info(f"PKey {pkey} exists, adding {len(new_guids)} new GUIDs: {new_guids}")
+                    # Handle GUID removals first
+                    if remove_guids:
+                        self.logger.info(f"PKey {pkey} removing {len(remove_guids)} obsolete GUIDs: {remove_guids}")
+                        removal_success = self.ufm.remove_guids_from_pkey(pkey, remove_guids)
+                        if not removal_success:
+                            self.logger.error(f"Failed to remove obsolete GUIDs from PKey {pkey}")
+                            # Continue with additions even if removal failed
+                    
+                    if not new_guids and not remove_guids:
+                        self.logger.info(f"PKey {pkey} is already synchronized (no changes needed)")
+                        return True
+                    elif new_guids:
+                        self.logger.info(f"PKey {pkey} exists, adding {len(new_guids)} new GUIDs: {new_guids}")
                 else:
                     # Couldn't parse existing GUIDs, add all
                     new_guids = guids
+                    remove_guids = []
                     self.logger.warning(f"Could not parse existing GUIDs for PKey {pkey} (format: {type(existing_guids)}), adding all")
             
             # Add only the new GUIDs to PKey
@@ -216,17 +230,43 @@ class PKeyMonitor:
                 )
                 
                 if success:
-                    self.logger.info(f"Successfully configured PKey {pkey} with {len(new_guids)} new GUIDs: {new_guids}")
+                    self.logger.info(f"Successfully added {len(new_guids)} new GUIDs to PKey {pkey}: {new_guids}")
                     return True
                 else:
                     self.logger.error(f"Failed to add GUIDs to PKey {pkey}")
                     return False
             else:
-                self.logger.info(f"No new GUIDs to add to PKey {pkey}")
+                # Only removals were performed, or no changes needed
                 return True
                 
         except Exception as e:
             self.logger.error(f"Error configuring PKey {pkey} in UFM: {e}")
+            return False
+    
+    def remove_pkey_from_ufm(self, pkey: str) -> bool:
+        """Remove PKey from UFM"""
+        self.logger.info(f"Removing PKey {pkey} from UFM (no longer exists in etcd)")
+        
+        try:
+            # Check if PKey exists in UFM first
+            existing_pkey = self.ufm.get_pkey(pkey, include_guids=False)
+            
+            if existing_pkey is None:
+                self.logger.info(f"PKey {pkey} doesn't exist in UFM, nothing to remove")
+                return True
+            
+            # Remove the PKey from UFM
+            success = self.ufm.delete_pkey(pkey)
+            
+            if success:
+                self.logger.info(f"Successfully removed PKey {pkey} from UFM")
+                return True
+            else:
+                self.logger.error(f"Failed to remove PKey {pkey} from UFM")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error removing PKey {pkey} from UFM: {e}")
             return False
     
     def scan_pkeys(self) -> None:
@@ -240,18 +280,45 @@ class PKeyMonitor:
         if not success:
             if "key not found" in stderr.lower():
                 self.logger.debug("No PKeys found in etcd")
+                current_etcd_keys = set()  # Empty set for no keys found
             else:
                 self.logger.error(f"Failed to list PKeys from etcd: {stderr}")
-            return
+                return  # Don't update last_known_etcd_keys if etcd failed
+        else:
+            if not stdout.strip():
+                self.logger.debug("No PKeys found in etcd")
+                current_etcd_keys = set()  # Empty set for no keys found
+            else:
+                # Process each key - filter out password prompts and invalid keys
+                keys = [key.strip() for key in stdout.strip().split('\n') 
+                        if key.strip() and not key.strip().endswith(':') and key.strip().startswith('/')]
+                current_etcd_keys = set(keys)
         
-        if not stdout.strip():
-            self.logger.debug("No PKeys found in etcd")
-            return
+        # Handle PKey deletions (only if we got a valid response from etcd)
+        if self.last_known_etcd_keys is not None:
+            deleted_keys = self.last_known_etcd_keys - current_etcd_keys
+            
+            if deleted_keys:
+                self.logger.info(f"Found {len(deleted_keys)} deleted PKey(s): {list(deleted_keys)}")
+                
+                for deleted_key in deleted_keys:
+                    try:
+                        # Extract PKey from the key path
+                        pkey = deleted_key.split('/')[-1]
+                        if validate_pkey(pkey):
+                            self.remove_pkey_from_ufm(pkey)
+                            # Remove from processed_keys so it can be re-added if it comes back
+                            self.processed_keys.discard(deleted_key)
+                        else:
+                            self.logger.warning(f"Invalid PKey format in deleted key: {pkey}")
+                    except Exception as e:
+                        self.logger.error(f"Error processing deleted key {deleted_key}: {e}")
         
-        # Process each key - filter out password prompts and invalid keys
-        keys = [key.strip() for key in stdout.strip().split('\n') 
-                if key.strip() and not key.strip().endswith(':') and key.strip().startswith('/')]
-        new_keys = [key for key in keys if key not in self.processed_keys]
+        # Update the last known etcd state
+        self.last_known_etcd_keys = current_etcd_keys
+        
+        # Process new keys
+        new_keys = [key for key in current_etcd_keys if key not in self.processed_keys]
         
         if new_keys:
             self.logger.info(f"Found {len(new_keys)} new PKey(s): {new_keys}")
@@ -275,7 +342,7 @@ class PKeyMonitor:
                 if pkey_data:
                     if self.configure_pkey_in_ufm(pkey_data):
                         self.processed_keys.add(key)
-                        self.logger.info(f"Successfully processed PKey {pkey_data['pkey']}")
+                        self.logger.info(f"Successfully synchronized PKey {pkey_data['pkey']}")
                     else:
                         self.logger.error(f"Failed to configure PKey {pkey_data['pkey']} in UFM")
                 else:
