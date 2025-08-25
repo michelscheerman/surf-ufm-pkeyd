@@ -297,15 +297,24 @@ class PKeyMonitor:
                 return
             
             if self.debug:
-                self.logger.debug(f"UFM returned {len(ufm_pkeys)} PKeys: {ufm_pkeys[:3] if len(ufm_pkeys) >= 3 else ufm_pkeys}...")
+                if isinstance(ufm_pkeys, dict):
+                    sample_keys = list(ufm_pkeys.keys())[:3] if len(ufm_pkeys) >= 3 else list(ufm_pkeys.keys())
+                    self.logger.debug(f"UFM returned {len(ufm_pkeys)} PKeys (dict format): {sample_keys}...")
+                else:
+                    self.logger.debug(f"UFM returned {len(ufm_pkeys)} PKeys: {ufm_pkeys[:3] if len(ufm_pkeys) >= 3 else ufm_pkeys}...")
             
             # Extract PKey values from UFM response
             ufm_pkey_values = set()
-            for pkey_info in ufm_pkeys:
-                if isinstance(pkey_info, dict):
-                    pkey_value = pkey_info.get('pkey') or pkey_info.get('partition_key')
-                    if pkey_value:
-                        ufm_pkey_values.add(pkey_value)
+            if isinstance(ufm_pkeys, dict):
+                # UFM returns dict format: {"0x4000": {...}, "0x5000": {...}}
+                ufm_pkey_values = set(ufm_pkeys.keys())
+            elif isinstance(ufm_pkeys, list):
+                # Handle list format if UFM ever changes: [{"pkey": "0x4000"}, ...]
+                for pkey_info in ufm_pkeys:
+                    if isinstance(pkey_info, dict):
+                        pkey_value = pkey_info.get('pkey') or pkey_info.get('partition_key')
+                        if pkey_value:
+                            ufm_pkey_values.add(pkey_value)
             
             # Extract PKey values from etcd keys (remove path prefix)
             etcd_pkey_values = set()
