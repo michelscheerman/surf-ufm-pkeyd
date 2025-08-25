@@ -226,8 +226,12 @@ def validate_pkey(pkey: str) -> bool:
 
 
 def validate_guid(guid: str) -> bool:
-    """Validate GUID format (16 hex characters)"""
+    """Validate GUID format (16 hex characters, with or without 0x prefix)"""
     try:
+        # Remove 0x prefix if present
+        if guid.startswith('0x') or guid.startswith('0X'):
+            guid = guid[2:]
+        
         if len(guid) != 16:
             return False
         int(guid, 16)
