@@ -331,10 +331,14 @@ class PKeyMonitor:
                 self.logger.debug(f"etcd PKeys: {sorted(etcd_pkey_values)}")
                 self.logger.debug(f"Unmanaged PKeys: {sorted(unmanaged_pkeys)}")
             
+            # Always show UFM perspective summary
+            self.logger.info(f"UFM Status: {len(ufm_pkey_values)} total PKeys, {len(etcd_pkey_values)} managed via etcd, {len(unmanaged_pkeys)} unmanaged")
+            
             if unmanaged_pkeys:
-                self.logger.info(f"Found {len(unmanaged_pkeys)} PKey(s) in UFM not managed through etcd: {sorted(unmanaged_pkeys)}")
-            else:
-                self.logger.info("All PKeys in UFM are managed through etcd")
+                self.logger.info(f"UFM PKeys NOT managed through etcd: {sorted(unmanaged_pkeys)}")
+            
+            if etcd_pkey_values:
+                self.logger.info(f"UFM PKeys managed through etcd: {sorted(etcd_pkey_values)}")
                 
         except Exception as e:
             self.logger.error(f"Error reporting unmanaged PKeys: {e}")
