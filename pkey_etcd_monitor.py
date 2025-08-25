@@ -170,11 +170,11 @@ class PKeyMonitor:
                 existing_guid_strings = []
                 
                 # Handle different formats that UFM might return
-                # Always log the first few times to understand the format
-                if len(existing_guids) > 0:
-                    self.logger.info(f"DEBUG: PKey {pkey} existing_guids format: {type(existing_guids)}, length: {len(existing_guids)}, sample: {existing_guids[:2] if len(existing_guids) >= 2 else existing_guids}")
-                else:
-                    self.logger.info(f"DEBUG: PKey {pkey} existing_guids is empty: {existing_guids}")
+                if self.debug:
+                    if len(existing_guids) > 0:
+                        self.logger.debug(f"PKey {pkey} existing_guids format: {type(existing_guids)}, length: {len(existing_guids)}, sample: {existing_guids[:2] if len(existing_guids) >= 2 else existing_guids}")
+                    else:
+                        self.logger.debug(f"PKey {pkey} existing_guids is empty: {existing_guids}")
                 
                 if isinstance(existing_guids, list):
                     # List of strings or dicts
