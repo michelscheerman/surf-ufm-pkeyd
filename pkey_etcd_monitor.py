@@ -288,12 +288,16 @@ class PKeyMonitor:
     def report_unmanaged_pkeys(self, current_etcd_keys: Set[str]) -> None:
         """Report PKeys that exist in UFM but are not managed through etcd"""
         try:
+            self.logger.debug("Querying UFM for all PKeys...")
             # Get all PKeys from UFM
             ufm_pkeys = self.ufm.list_pkeys(include_guids=False)
             
             if not ufm_pkeys:
                 self.logger.warning("Could not retrieve PKey list from UFM")
                 return
+            
+            if self.debug:
+                self.logger.debug(f"UFM returned {len(ufm_pkeys)} PKeys: {ufm_pkeys[:3] if len(ufm_pkeys) >= 3 else ufm_pkeys}...")
             
             # Extract PKey values from UFM response
             ufm_pkey_values = set()
@@ -313,10 +317,15 @@ class PKeyMonitor:
             # Find PKeys in UFM that are not managed by etcd
             unmanaged_pkeys = ufm_pkey_values - etcd_pkey_values
             
+            if self.debug:
+                self.logger.debug(f"UFM PKeys: {sorted(ufm_pkey_values)}")
+                self.logger.debug(f"etcd PKeys: {sorted(etcd_pkey_values)}")
+                self.logger.debug(f"Unmanaged PKeys: {sorted(unmanaged_pkeys)}")
+            
             if unmanaged_pkeys:
                 self.logger.info(f"Found {len(unmanaged_pkeys)} PKey(s) in UFM not managed through etcd: {sorted(unmanaged_pkeys)}")
             else:
-                self.logger.debug("All PKeys in UFM are managed through etcd")
+                self.logger.info("All PKeys in UFM are managed through etcd")
                 
         except Exception as e:
             self.logger.error(f"Error reporting unmanaged PKeys: {e}")
