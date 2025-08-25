@@ -160,22 +160,49 @@ class PKeyMonitor:
                 if not self.ufm.create_pkey(pkey, index0=True, ip_over_ib=False):
                     self.logger.error(f"Failed to create PKey {pkey}")
                     return False
-            
-            # Add GUIDs to PKey
-            success = self.ufm.add_guids_to_pkey(
-                pkey=pkey,
-                guids=guids,
-                membership="full",
-                index0=True,
-                ip_over_ib=False
-            )
-            
-            if success:
-                self.logger.info(f"Successfully configured PKey {pkey} with GUIDs: {guids}")
-                return True
+                # After creating, we need to add all GUIDs
+                new_guids = guids
             else:
-                self.logger.error(f"Failed to add GUIDs to PKey {pkey}")
-                return False
+                # PKey exists, check which GUIDs are already present
+                existing_guids = existing_pkey.get('guids', [])
+                if isinstance(existing_guids, list):
+                    # Convert existing GUIDs to set for comparison (normalize case)
+                    existing_guids_set = {guid.lower() for guid in existing_guids}
+                    new_guids_set = {guid.lower() for guid in guids}
+                    
+                    # Find GUIDs that need to be added
+                    missing_guids = new_guids_set - existing_guids_set
+                    new_guids = [guid for guid in guids if guid.lower() in missing_guids]
+                    
+                    if not new_guids:
+                        self.logger.info(f"PKey {pkey} already has all required GUIDs, skipping")
+                        return True
+                    
+                    self.logger.info(f"PKey {pkey} exists, adding {len(new_guids)} new GUIDs: {new_guids}")
+                else:
+                    # Couldn't get existing GUIDs, add all
+                    new_guids = guids
+                    self.logger.warning(f"Could not check existing GUIDs for PKey {pkey}, adding all")
+            
+            # Add only the new GUIDs to PKey
+            if new_guids:
+                success = self.ufm.add_guids_to_pkey(
+                    pkey=pkey,
+                    guids=new_guids,
+                    membership="full",
+                    index0=True,
+                    ip_over_ib=False
+                )
+                
+                if success:
+                    self.logger.info(f"Successfully configured PKey {pkey} with {len(new_guids)} new GUIDs: {new_guids}")
+                    return True
+                else:
+                    self.logger.error(f"Failed to add GUIDs to PKey {pkey}")
+                    return False
+            else:
+                self.logger.info(f"No new GUIDs to add to PKey {pkey}")
+                return True
                 
         except Exception as e:
             self.logger.error(f"Error configuring PKey {pkey} in UFM: {e}")
