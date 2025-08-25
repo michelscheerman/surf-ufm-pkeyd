@@ -289,11 +289,19 @@ class PKeyMonitor:
         """Report PKeys that exist in UFM but are not managed through etcd"""
         try:
             self.logger.debug("Querying UFM for all PKeys...")
-            # Get all PKeys from UFM
-            ufm_pkeys = self.ufm.list_pkeys(include_guids=False)
+            # Get all PKeys from UFM - try with guids=True first (like manual command)
+            ufm_pkeys = self.ufm.list_pkeys(include_guids=True)
+            
+            self.logger.debug(f"UFM list_pkeys returned: {type(ufm_pkeys)}, value: {ufm_pkeys}")
+            
+            # If that failed, try without GUIDs
+            if not ufm_pkeys:
+                self.logger.debug("Retrying UFM list_pkeys without GUIDs...")
+                ufm_pkeys = self.ufm.list_pkeys(include_guids=False)
+                self.logger.debug(f"UFM list_pkeys (no guids) returned: {type(ufm_pkeys)}, value: {ufm_pkeys}")
             
             if not ufm_pkeys:
-                self.logger.warning("Could not retrieve PKey list from UFM")
+                self.logger.warning("Could not retrieve PKey list from UFM (empty or None response)")
                 return
             
             if self.debug:
