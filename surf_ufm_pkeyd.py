@@ -321,7 +321,7 @@ class UFMAPIClient:
         self.session.auth = requests.auth.HTTPBasicAuth(self.username, self.password)
         
         try:
-            test_url = urljoin(self.base_url, "/app/ufm_version")
+            test_url = urljoin(self.base_url, "/resources/pkeys")
             response = self.session.get(test_url, timeout=10)
             print(f"Basic auth test - Status: {response.status_code}")
             
