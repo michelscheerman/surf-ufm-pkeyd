@@ -605,18 +605,24 @@ Examples:
         # Let etcdctl prompt for password - don't provide it via command line
         etcd_password = None
     
+    # Determine if we need CA cert based on protocol
+    ca_cert_path = args.etcd_ca_cert
+    if not ca_cert_path and pcocc_config.get('protocol') == 'https':
+        ca_cert_path = pcocc_config.get('ca_cert')
+    
     # Build configuration dictionaries  
     etcd_config = {
         'endpoints': etcd_endpoints,
         'host': etcd_host,
         'port': etcd_port,
-        'ca_cert': args.etcd_ca_cert or pcocc_config.get('ca_cert'),
+        'ca_cert': ca_cert_path,
         'cert_file': args.etcd_cert_file,
         'key_file': args.etcd_key_file,
         'user': args.etcd_user,
         'password': etcd_password,
         'timeout': args.etcd_timeout,
-        'debug': args.debug
+        'debug': args.debug,
+        'protocol': pcocc_config.get('protocol', 'http')  # Pass protocol to etcd manager
     }
     
     ufm_config = {

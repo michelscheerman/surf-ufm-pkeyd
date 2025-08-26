@@ -24,10 +24,11 @@ class ETCDManager:
                  port: int = 2379, ca_cert: Optional[str] = None, 
                  cert_file: Optional[str] = None, key_file: Optional[str] = None,
                  user: Optional[str] = None, password: Optional[str] = None,
-                 timeout: int = 30, debug: bool = False):
+                 timeout: int = 30, debug: bool = False, protocol: str = "http"):
         self.timeout = timeout
         self.debug = debug
         self._cached_password = None  # Cache password after first prompt
+        self.protocol = protocol
         
         if endpoints:
             self.endpoints = endpoints
@@ -57,13 +58,24 @@ class ETCDManager:
                 # No password available, etcdctl will prompt
                 cmd.extend(["--username", self.user])
         
-        # Add TLS options if provided - use command line flags only to avoid conflicts
+        # Add TLS options if provided - different flags for different API versions
+        api_version = "3" if self.protocol == "https" and (self.ca_cert or self.cert_file) else "2"
+        
         if self.ca_cert:
-            cmd.extend(["--cacert", self.ca_cert])
+            if api_version == "3":
+                cmd.extend(["--cacert", self.ca_cert])
+            else:
+                cmd.extend(["--ca-file", self.ca_cert])
         if self.cert_file:
-            cmd.extend(["--cert", self.cert_file])
+            if api_version == "3":
+                cmd.extend(["--cert", self.cert_file])
+            else:
+                cmd.extend(["--cert-file", self.cert_file])
         if self.key_file:
-            cmd.extend(["--key", self.key_file])
+            if api_version == "3":
+                cmd.extend(["--key", self.key_file])
+            else:
+                cmd.extend(["--key-file", self.key_file])
             
         # Add the actual command and its arguments
         cmd.extend(args)
@@ -71,8 +83,17 @@ class ETCDManager:
         # Set up environment for etcdctl
         env = os.environ.copy()
         
-        # Force API version 2 (based on working example)
-        env["ETCDCTL_API"] = "2"
+        # Choose API version based on protocol and certificate usage
+        if self.protocol == "https" and (self.ca_cert or self.cert_file):
+            # Use API v3 for HTTPS with certificates
+            env["ETCDCTL_API"] = "3"
+            if self.debug:
+                print(f"DEBUG: Using etcd API v3 for HTTPS protocol", file=sys.stderr)
+        else:
+            # Use API v2 for HTTP or no certificates
+            env["ETCDCTL_API"] = "2"
+            if self.debug:
+                print(f"DEBUG: Using etcd API v2 for HTTP protocol", file=sys.stderr)
             
         if self.debug:
             # Print command for debugging (hide password)
