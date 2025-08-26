@@ -59,19 +59,13 @@ install -m 644 requirements.txt %{buildroot}%{_docdir}/%{name}/requirements.txt
 install -d %{buildroot}%{_sysconfdir}/pcocc
 
 %pre
-# Create pcocc user and group
-getent group pcocc >/dev/null || groupadd -r pcocc
-getent passwd pcocc >/dev/null || \
-    useradd -r -g pcocc -d /var/lib/pcocc -s /sbin/nologin \
-    -c "PCOCC service account" pcocc
-exit 0
+# No user creation needed - service runs as root
 
 %post
 %systemd_post surf-ufm-pkeyd.service
 
 # Set permissions on configuration directory
-chown root:pcocc %{_sysconfdir}/pcocc
-chmod 750 %{_sysconfdir}/pcocc
+chmod 755 %{_sysconfdir}/pcocc
 
 %preun
 %systemd_preun surf-ufm-pkeyd.service
@@ -84,7 +78,7 @@ chmod 750 %{_sysconfdir}/pcocc
 %doc %{_docdir}/%{name}/requirements.txt
 %{_bindir}/surf_ufm_pkeyd.py
 %{_unitdir}/surf-ufm-pkeyd.service
-%dir %attr(750,root,pcocc) %{_sysconfdir}/pcocc
+%dir %attr(755,root,root) %{_sysconfdir}/pcocc
 
 %changelog
 * Mon Aug 26 2024 SURF SNELLIUS Team <support@surf.nl> - 1.0.0-1

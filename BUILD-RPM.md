@@ -72,8 +72,8 @@ Before starting the service, create configuration files:
 2. **UFM Password** (`/etc/pcocc/ufm-password`):
    ```bash
    echo "your_ufm_password" | sudo tee /etc/pcocc/ufm-password
-   sudo chmod 640 /etc/pcocc/ufm-password
-   sudo chown root:pcocc /etc/pcocc/ufm-password
+   sudo chmod 600 /etc/pcocc/ufm-password
+   sudo chown root:root /etc/pcocc/ufm-password
    ```
 
 3. **etcd Configuration** (`/etc/pcocc/batch.yaml`):
@@ -88,8 +88,8 @@ Before starting the service, create configuration files:
 4. **etcd Password** (`/etc/pcocc/etcd-password`):
    ```bash
    echo "your_etcd_password" | sudo tee /etc/pcocc/etcd-password
-   sudo chmod 640 /etc/pcocc/etcd-password
-   sudo chown root:pcocc /etc/pcocc/etcd-password
+   sudo chmod 600 /etc/pcocc/etcd-password
+   sudo chown root:root /etc/pcocc/etcd-password
    ```
 
 ## Service Management
@@ -120,13 +120,13 @@ The RPM installs:
 
 - `/usr/bin/surf_ufm_pkeyd.py` - Main daemon script
 - `/etc/systemd/system/surf-ufm-pkeyd.service` - Systemd service unit
-- `/etc/pcocc/` - Configuration directory (owned by root:pcocc, 750 permissions)
+- `/etc/pcocc/` - Configuration directory (owned by root:root, 755 permissions)
 - `/usr/share/doc/surf-ufm-pkeyd/` - Documentation files
 
 ## Security Features
 
-- Runs as dedicated `pcocc` user (created during installation)
-- Configuration directory restricted to root:pcocc access
+- Runs as root for full system access when needed
+- Configuration files secured with 600 permissions (root-only access)
 - Systemd security hardening enabled
 - No network privileges beyond what's needed
 - Resource limits enforced
