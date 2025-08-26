@@ -64,6 +64,24 @@ def load_pcocc_config(config_path: str = "/etc/pcocc/batch.yaml") -> Dict:
         return {}
 
 
+def load_ufm_config(config_path: str = "/etc/pcocc/ufm.yaml") -> Dict:
+    """Load UFM configuration from YAML file"""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        settings = config.get('settings', {})
+        ufm_config = {
+            'servers': settings.get('ufm-servers', []),
+            'auth_type': settings.get('ufm-auth-type', 'password'),
+        }
+        
+        return ufm_config
+    except (FileNotFoundError, yaml.YAMLError, KeyError) as e:
+        print(f"Warning: Could not load UFM config from {config_path}: {e}")
+        return {}
+
+
 def validate_pkey(pkey: str) -> bool:
     """Validate PKey format (0x0000 to 0x7fff)"""
     try:
@@ -942,9 +960,9 @@ Configuration is automatically loaded from /etc/pcocc/batch.yaml when available.
     
     # UFM Configuration
     ufm_group = monitor_parser.add_argument_group("UFM Configuration")
-    ufm_group.add_argument("--ufm-host", required=True, help="UFM host address")
+    ufm_group.add_argument("--ufm-host", help="UFM host address (overrides /etc/pcocc/ufm.yaml)")
     ufm_group.add_argument("--ufm-user", required=True, help="UFM username")
-    ufm_group.add_argument("--ufm-password", required=True, help="UFM password")
+    ufm_group.add_argument("--ufm-password", help="UFM password (uses /etc/pcocc/ufm-password if not provided)")
     ufm_group.add_argument("--no-ssl-verify", action="store_true", help="Disable SSL verification for UFM")
     ufm_group.add_argument("--http", action="store_true", help="Use HTTP instead of HTTPS for UFM")
     
@@ -958,9 +976,9 @@ Configuration is automatically loaded from /etc/pcocc/batch.yaml when available.
     # ========================================================================
     ufm_parser = subparsers.add_parser('ufm', help='Direct UFM PKey management operations')
     
-    ufm_parser.add_argument("--host", required=True, help="UFM host address")
+    ufm_parser.add_argument("--host", help="UFM host address (overrides /etc/pcocc/ufm.yaml)")
     ufm_parser.add_argument("--username", required=True, help="UFM username")
-    ufm_parser.add_argument("--password", required=True, help="UFM password")
+    ufm_parser.add_argument("--password", help="UFM password (uses /etc/pcocc/ufm-password if not provided)")
     ufm_parser.add_argument("--no-ssl-verify", action="store_true", help="Disable SSL verification")
     ufm_parser.add_argument("--http", action="store_true", help="Use HTTP instead of HTTPS")
     
@@ -1119,10 +1137,58 @@ def run_monitor_mode(args):
         'protocol': pcocc_config.get('protocol', 'http')
     }
     
+    # Load UFM configuration from PCOCC files
+    ufm_pcocc_config = load_ufm_config()
+    if ufm_pcocc_config:
+        print(f"Loaded UFM configuration from /etc/pcocc/ufm.yaml")
+        print(f"  Servers: {ufm_pcocc_config.get('servers', [])}")
+        print(f"  Auth Type: {ufm_pcocc_config.get('auth_type', 'password')}")
+    
+    # Determine UFM host from command line or config file
+    ufm_host = args.ufm_host
+    if not ufm_host and ufm_pcocc_config.get('servers'):
+        ufm_host = ufm_pcocc_config['servers'][0]
+        print(f"Using UFM host from config: {ufm_host}")
+    
+    # Handle UFM password from multiple sources
+    ufm_password = args.ufm_password
+    
+    # Try to read password from file if user provided but no password given
+    if args.ufm_user and not ufm_password:
+        password_file = "/etc/pcocc/ufm-password"
+        try:
+            if os.path.exists(password_file):
+                with open(password_file, 'r') as f:
+                    ufm_password = f.read().strip()
+                    if ufm_password:
+                        print(f"Using UFM password from {password_file}")
+                    else:
+                        print(f"Warning: {password_file} is empty")
+                        ufm_password = None
+            else:
+                print(f"UFM password file {password_file} not found")
+        except (IOError, OSError) as e:
+            print(f"Could not read UFM password file {password_file}: {e}")
+        
+        # If still no password, prompt for it
+        if not ufm_password:
+            ufm_password = getpass.getpass(f"UFM password for user '{args.ufm_user}': ")
+    
+    # Validate required UFM parameters
+    if not ufm_host:
+        print("Error: UFM host is required (use --ufm-host or configure in /etc/pcocc/ufm.yaml)")
+        return 1
+    if not args.ufm_user:
+        print("Error: UFM username is required (use --ufm-user)")
+        return 1
+    if not ufm_password:
+        print("Error: UFM password is required (use --ufm-password or /etc/pcocc/ufm-password file)")
+        return 1
+    
     ufm_config = {
-        'host': args.ufm_host,
+        'host': ufm_host,
         'username': args.ufm_user,
-        'password': args.ufm_password,
+        'password': ufm_password,
         'use_https': not args.http,
         'verify_ssl': not args.no_ssl_verify
     }
@@ -1144,11 +1210,58 @@ def run_monitor_mode(args):
 
 def run_ufm_mode(args):
     """Run UFM management operations"""
+    # Load UFM configuration from PCOCC files
+    ufm_pcocc_config = load_ufm_config()
+    if ufm_pcocc_config:
+        print(f"Loaded UFM configuration from /etc/pcocc/ufm.yaml")
+        print(f"  Servers: {ufm_pcocc_config.get('servers', [])}")
+    
+    # Determine UFM host from command line or config file
+    ufm_host = args.host
+    if not ufm_host and ufm_pcocc_config.get('servers'):
+        ufm_host = ufm_pcocc_config['servers'][0]
+        print(f"Using UFM host from config: {ufm_host}")
+    
+    # Handle UFM password from multiple sources
+    ufm_password = args.password
+    
+    # Try to read password from file if user provided but no password given
+    if args.username and not ufm_password:
+        password_file = "/etc/pcocc/ufm-password"
+        try:
+            if os.path.exists(password_file):
+                with open(password_file, 'r') as f:
+                    ufm_password = f.read().strip()
+                    if ufm_password:
+                        print(f"Using UFM password from {password_file}")
+                    else:
+                        print(f"Warning: {password_file} is empty")
+                        ufm_password = None
+            else:
+                print(f"UFM password file {password_file} not found")
+        except (IOError, OSError) as e:
+            print(f"Could not read UFM password file {password_file}: {e}")
+        
+        # If still no password, prompt for it
+        if not ufm_password:
+            ufm_password = getpass.getpass(f"UFM password for user '{args.username}': ")
+    
+    # Validate required parameters
+    if not ufm_host:
+        print("Error: UFM host is required (use --host or configure in /etc/pcocc/ufm.yaml)")
+        return 1
+    if not args.username:
+        print("Error: UFM username is required (use --username)")
+        return 1
+    if not ufm_password:
+        print("Error: UFM password is required (use --password or /etc/pcocc/ufm-password file)")
+        return 1
+    
     # Create UFM client
     ufm = UFMAPIClient(
-        host=args.host,
+        host=ufm_host,
         username=args.username,
-        password=args.password,
+        password=ufm_password,
         use_https=not args.http,
         verify_ssl=not args.no_ssl_verify
     )
