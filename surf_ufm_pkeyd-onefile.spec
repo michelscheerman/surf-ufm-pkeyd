@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec file for SURF UFM PKey Daemon
+# PyInstaller spec file for SURF UFM PKey Daemon (single file)
 
 a = Analysis(
     ['surf_ufm_pkeyd.py'],
@@ -12,17 +12,6 @@ a = Analysis(
         'urllib3',
         'urllib3.util.retry',
         'requests.adapters',
-        'json',
-        'argparse',
-        'logging',
-        'signal',
-        'subprocess',
-        'threading',
-        'time',
-        'os',
-        'sys',
-        'getpass',
-        'typing',
     ],
     hookspath=[],
     hooksconfig={},
@@ -38,30 +27,27 @@ a = Analysis(
         'PySide6',
     ],
     noarchive=False,
-    optimize=0,
 )
 
-pyz = PYZ(a.pure)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='surf_ufm_pkeyd',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
     upx_exclude=[],
-    name='surf_ufm_pkeyd',
+    runtime_tmpdir=None,
+    console=True,
+    disable_windowed_traceback=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
