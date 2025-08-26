@@ -21,6 +21,7 @@ import time
 from typing import Dict, List, Optional, Set
 import subprocess
 import os
+import yaml
 
 # Import our existing modules
 from etcd_manager import ETCDManager
@@ -473,6 +474,27 @@ class PKeyMonitor:
         self.running = False
 
 
+def load_pcocc_config(config_path: str = "/etc/pcocc/batch.yaml") -> Dict:
+    """Load PCOCC batch configuration from YAML file"""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        settings = config.get('settings', {})
+        etcd_config = {
+            'servers': settings.get('etcd-servers', []),
+            'port': settings.get('etcd-client-port', 2379),
+            'protocol': settings.get('etcd-protocol', 'http'),
+            'auth_type': settings.get('etcd-auth-type', 'password'),
+            'ca_cert': settings.get('etcd-ca-cert'),
+        }
+        
+        return etcd_config
+    except (FileNotFoundError, yaml.YAMLError, KeyError) as e:
+        print(f"Warning: Could not load PCOCC config from {config_path}: {e}")
+        return {}
+
+
 def signal_handler(signum, frame, monitor):
     """Handle shutdown signals"""
     print(f"\nReceived signal {signum}, shutting down...")
@@ -492,12 +514,12 @@ Examples:
         """
     )
     
-    # ETCD Configuration
+    # ETCD Configuration (will use /etc/pcocc/batch.yaml by default)
     etcd_group = parser.add_argument_group("ETCD Configuration")
-    etcd_group.add_argument("--etcd-host", default="localhost", help="ETCD host (default: localhost)")
-    etcd_group.add_argument("--etcd-port", type=int, default=2379, help="ETCD port (default: 2379)")
-    etcd_group.add_argument("--etcd-endpoints", help="Comma-separated ETCD endpoints")
-    etcd_group.add_argument("--etcd-ca-cert", help="Path to ETCD CA certificate")
+    etcd_group.add_argument("--etcd-host", help="ETCD host (overrides batch.yaml)")
+    etcd_group.add_argument("--etcd-port", type=int, help="ETCD port (overrides batch.yaml)")
+    etcd_group.add_argument("--etcd-endpoints", help="Comma-separated ETCD endpoints (overrides batch.yaml)")
+    etcd_group.add_argument("--etcd-ca-cert", help="Path to ETCD CA certificate (overrides batch.yaml)")
     etcd_group.add_argument("--etcd-cert-file", help="Path to ETCD client certificate")
     etcd_group.add_argument("--etcd-key-file", help="Path to ETCD client key")
     etcd_group.add_argument("--etcd-user", help="ETCD username")
@@ -525,10 +547,36 @@ Examples:
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Parse ETCD endpoints
+    # Load PCOCC configuration
+    pcocc_config = load_pcocc_config()
+    if pcocc_config:
+        print(f"Loaded etcd configuration from /etc/pcocc/batch.yaml")
+        print(f"  Servers: {pcocc_config.get('servers', [])}")
+        print(f"  Port: {pcocc_config.get('port', 2379)}")
+        print(f"  Protocol: {pcocc_config.get('protocol', 'http')}")
+    
+    # Build ETCD endpoints from PCOCC config or command line
     etcd_endpoints = None
     if args.etcd_endpoints:
         etcd_endpoints = [e.strip() for e in args.etcd_endpoints.split(',')]
+    elif pcocc_config.get('servers'):
+        protocol = pcocc_config.get('protocol', 'http')
+        port = pcocc_config.get('port', 2379)
+        etcd_endpoints = [f"{protocol}://{server}:{port}" for server in pcocc_config['servers']]
+    
+    # Determine etcd host and port (for backwards compatibility)
+    etcd_host = args.etcd_host
+    etcd_port = args.etcd_port
+    if not etcd_host and pcocc_config.get('servers'):
+        etcd_host = pcocc_config['servers'][0]  # Use first server as default
+    if not etcd_port and pcocc_config.get('port'):
+        etcd_port = pcocc_config['port']
+    
+    # Use defaults if nothing specified
+    if not etcd_host:
+        etcd_host = "localhost"
+    if not etcd_port:
+        etcd_port = 2379
     
     # Handle ETCD password from multiple sources
     etcd_password = args.etcd_password
@@ -557,12 +605,12 @@ Examples:
         # Let etcdctl prompt for password - don't provide it via command line
         etcd_password = None
     
-    # Build configuration dictionaries
+    # Build configuration dictionaries  
     etcd_config = {
         'endpoints': etcd_endpoints,
-        'host': args.etcd_host,
-        'port': args.etcd_port,
-        'ca_cert': args.etcd_ca_cert,
+        'host': etcd_host,
+        'port': etcd_port,
+        'ca_cert': args.etcd_ca_cert or pcocc_config.get('ca_cert'),
         'cert_file': args.etcd_cert_file,
         'key_file': args.etcd_key_file,
         'user': args.etcd_user,
