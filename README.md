@@ -7,8 +7,8 @@ A unified daemon that combines etcd monitoring, UFM PKey management, and direct 
 - **Monitor Mode**: Automatically monitor etcd for PKey configuration changes and sync to NVIDIA UFM Enterprise
 - **UFM Mode**: Direct UFM PKey management operations (list, create, delete, manage GUIDs)
 - **ETCD Mode**: Direct etcd key-value operations (list, get, put, delete)
-- **PCOCC Integration**: Automatic configuration loading from `/etc/pcocc/batch.yaml`
-- **Password File Support**: Automatic password loading from `/etc/pcocc/etcd-password`
+- **PCOCC Integration**: Automatic configuration loading from `/etc/pcocc/batch.yaml` and `/etc/pcocc/ufm.yaml`
+- **Password File Support**: Automatic password loading from `/etc/pcocc/etcd-password` and `/etc/pcocc/ufm-password`
 - **Comprehensive Logging**: Debug logging and error handling
 - **SSL Support**: Configurable SSL verification and certificate handling
 - **Protocol Flexibility**: Support for both HTTP and HTTPS for etcd and UFM
@@ -29,8 +29,10 @@ The daemon automatically loads configuration from PCOCC files when available:
 
 - **etcd Configuration**: `/etc/pcocc/batch.yaml` 
 - **etcd Password**: `/etc/pcocc/etcd-password`
+- **UFM Configuration**: `/etc/pcocc/ufm.yaml`
+- **UFM Password**: `/etc/pcocc/ufm-password`
 
-### PCOCC batch.yaml Format
+### PCOCC batch.yaml Format (etcd)
 ```yaml
 cluster:
   etcd:
@@ -38,6 +40,15 @@ cluster:
     port: 2379
     protocol: "https"  # or "http"
     ca_cert: "/etc/pcocc/ca.crt"
+```
+
+### PCOCC ufm.yaml Format (UFM)
+```yaml
+settings:
+  ufm-auth-type: password
+  ufm-servers:
+  - ufm1.local.snellius.surf.nl
+  - ufm2.local.snellius.surf.nl
 ```
 
 ## Usage
@@ -48,6 +59,10 @@ Continuously monitor etcd for PKey changes and automatically configure them in U
 
 ```bash
 # Basic monitoring with automatic PCOCC configuration
+# (Uses /etc/pcocc/ufm.yaml for host and /etc/pcocc/ufm-password for password)
+./surf_ufm_pkeyd.py monitor --ufm-user admin --etcd-user root
+
+# Monitoring with explicit UFM configuration (overrides PCOCC files)
 ./surf_ufm_pkeyd.py monitor --ufm-host ufm1.local --ufm-user admin --ufm-password secret
 
 # Monitoring with custom etcd configuration
@@ -85,16 +100,16 @@ Continuously monitor etcd for PKey changes and automatically configure them in U
 Direct UFM PKey management operations.
 
 ```bash
-# List all PKeys
-./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --list
+# List all PKeys (using automatic PCOCC configuration)
+./surf_ufm_pkeyd.py ufm --username admin --list
 
-# Get specific PKey information
+# Get specific PKey information (with explicit host override)
 ./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --get-pkey 0x5000
 
-# Create a new PKey
-./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --create-pkey 0x6000
+# Create a new PKey (using PCOCC configuration)
+./surf_ufm_pkeyd.py ufm --username admin --create-pkey 0x6000
 
-# Delete a PKey
+# Delete a PKey (with explicit configuration)
 ./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --delete-pkey 0x6000
 
 # Add GUIDs to a PKey
@@ -191,9 +206,9 @@ Direct etcd key-value operations.
 - `--etcd-timeout`: ETCD timeout in seconds (default: 30)
 
 #### UFM Configuration
-- `--ufm-host`: UFM host address (required)
+- `--ufm-host`: UFM host address (overrides /etc/pcocc/ufm.yaml)
 - `--ufm-user`: UFM username (required)
-- `--ufm-password`: UFM password (required)
+- `--ufm-password`: UFM password (uses /etc/pcocc/ufm-password if not provided)
 - `--no-ssl-verify`: Disable SSL verification for UFM
 - `--http`: Use HTTP instead of HTTPS for UFM
 
@@ -204,9 +219,9 @@ Direct etcd key-value operations.
 ### UFM Mode Options
 
 #### UFM Connection
-- `--host`: UFM host address (required)
+- `--host`: UFM host address (overrides /etc/pcocc/ufm.yaml)
 - `--username`: UFM username (required)
-- `--password`: UFM password (required)
+- `--password`: UFM password (uses /etc/pcocc/ufm-password if not provided)
 - `--no-ssl-verify`: Disable SSL verification
 - `--http`: Use HTTP instead of HTTPS
 
@@ -342,7 +357,19 @@ For production deployment:
 
 ### Common Issues
 
-1. **Authentication Failures**:
+1. **Configuration File Issues**:
+   ```bash
+   # Verify PCOCC UFM configuration is loaded
+   ./surf_ufm_pkeyd.py ufm --username admin --list
+   
+   # Check if configuration files exist
+   ls -la /etc/pcocc/ufm.yaml /etc/pcocc/ufm-password
+   
+   # Test with explicit configuration to bypass PCOCC files
+   ./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --list
+   ```
+
+2. **Authentication Failures**:
    ```bash
    # Verify UFM credentials and connectivity
    ./surf_ufm_pkeyd.py ufm --host ufm1.local --username admin --password secret --list
