@@ -321,7 +321,7 @@ class UFMAPIClient:
         self.session.auth = requests.auth.HTTPBasicAuth(self.username, self.password)
         
         try:
-            test_url = urljoin(self.base_url, "/resources/pkeys")
+            test_url = urljoin(self.base_url, "resources/pkeys")
             response = self.session.get(test_url, timeout=10)
             print(f"Testing URL: {test_url}")
             print(f"Basic auth test - Status: {response.status_code}")
@@ -339,7 +339,7 @@ class UFMAPIClient:
     
     def get_pkey(self, pkey: str, include_guids: bool = True) -> Optional[Dict]:
         """Get information about a specific PKey"""
-        url = urljoin(self.base_url, f"/resources/pkeys/{pkey}")
+        url = urljoin(self.base_url, f"resources/pkeys/{pkey}")
         params = {"guids_data": str(include_guids).lower()}
         
         try:
@@ -352,7 +352,7 @@ class UFMAPIClient:
     
     def list_pkeys(self, include_guids: bool = True) -> Optional[Dict]:
         """List all PKeys"""
-        url = urljoin(self.base_url, "/resources/pkeys")
+        url = urljoin(self.base_url, "resources/pkeys")
         params = {"guids_data": str(include_guids).lower()}
         
         try:
@@ -365,7 +365,7 @@ class UFMAPIClient:
     
     def create_pkey(self, pkey: str, index0: bool = True, ip_over_ib: bool = False) -> bool:
         """Create a new partition key"""
-        url = urljoin(self.base_url, "/resources/pkeys")
+        url = urljoin(self.base_url, "resources/pkeys")
         
         data = {
             "pkey": pkey,
@@ -384,7 +384,7 @@ class UFMAPIClient:
     
     def delete_pkey(self, pkey: str) -> bool:
         """Delete a partition key"""
-        url = urljoin(self.base_url, f"/resources/pkeys/{pkey}")
+        url = urljoin(self.base_url, f"resources/pkeys/{pkey}")
         
         try:
             response = self.session.delete(url)
@@ -398,7 +398,7 @@ class UFMAPIClient:
     def add_guids_to_pkey(self, pkey: str, guids: List[str], membership: str = "full",
                          index0: bool = True, ip_over_ib: bool = False) -> bool:
         """Add GUIDs to a partition key"""
-        url = urljoin(self.base_url, "/resources/pkeys/")
+        url = urljoin(self.base_url, "resources/pkeys/")
         
         data = {
             "pkey": pkey,
@@ -422,7 +422,7 @@ class UFMAPIClient:
     def remove_guids_from_pkey(self, pkey: str, guids: List[str]) -> bool:
         """Remove GUIDs from a partition key"""
         guids_str = ",".join(guids)
-        url = urljoin(self.base_url, f"/resources/pkeys/{pkey}/guids/{guids_str}")
+        url = urljoin(self.base_url, f"resources/pkeys/{pkey}/guids/{guids_str}")
         
         try:
             response = self.session.delete(url)
