@@ -323,6 +323,7 @@ class UFMAPIClient:
         try:
             test_url = urljoin(self.base_url, "/resources/pkeys")
             response = self.session.get(test_url, timeout=10)
+            print(f"Testing URL: {test_url}")
             print(f"Basic auth test - Status: {response.status_code}")
             
             if response.status_code == 200:
