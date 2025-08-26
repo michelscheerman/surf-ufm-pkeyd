@@ -495,12 +495,16 @@ class PKeyMonitor:
             verify_ssl=ufm_config.get('verify_ssl', False)
         )
         
-        # Set up logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
+        # Set up logging - systemd/journalctl friendly
         self.logger = logging.getLogger(__name__)
+        
+        # Configure logging if not already configured
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(levelname)s: %(message)s',  # Simplified for systemd
+                stream=sys.stdout  # Explicit stdout for systemd
+            )
     
     def authenticate_ufm(self) -> bool:
         """Authenticate with UFM API"""
@@ -1055,9 +1059,15 @@ Configuration is automatically loaded from /etc/pcocc/batch.yaml when available.
 
 def run_monitor_mode(args):
     """Run the PKey monitoring daemon"""
-    # Set up logging level
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+    # Set up logging for systemd/journalctl
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format='%(levelname)s: %(message)s',
+        stream=sys.stdout
+    )
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Starting SURF UFM PKey Daemon in monitor mode")
     
     # Load PCOCC configuration
     pcocc_config = load_pcocc_config()

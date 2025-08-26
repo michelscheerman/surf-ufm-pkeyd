@@ -1,0 +1,43 @@
+[Unit]
+Description=SURF UFM PKey Daemon
+Documentation=file:///usr/local/bin/surf_ufm_pkeyd.py
+After=network-online.target
+Wants=network-online.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=pcocc
+Group=pcocc
+ExecStart=/usr/bin/surf_ufm_pkeyd.py monitor --ufm-user admin --etcd-user root --poll-interval 30
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/etc/pcocc
+ReadOnlyPaths=/etc/pcocc/batch.yaml /etc/pcocc/ufm.yaml
+ReadOnlyPaths=/etc/pcocc/etcd-password /etc/pcocc/ufm-password
+
+# Resource limits
+MemoryMax=512M
+TasksMax=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=surf-ufm-pkeyd
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
