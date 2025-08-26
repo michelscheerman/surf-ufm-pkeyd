@@ -32,6 +32,8 @@ SyslogIdentifier=surf-ufm-pkeyd
 
 # Environment
 Environment=PYTHONUNBUFFERED=1
+Environment=GODEBUG=""
+Environment=GOTRACEBACK=none
 
 [Install]
 WantedBy=multi-user.target

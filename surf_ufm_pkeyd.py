@@ -172,6 +172,10 @@ class ETCDManager:
         # Set up environment
         env = os.environ.copy()
         
+        # Suppress Go runtime debug messages
+        env["GODEBUG"] = ""
+        env["GOTRACEBACK"] = "none"
+        
         # Choose API version based on protocol and certificate usage
         if self.protocol == "https" and (self.ca_cert or self.cert_file):
             env["ETCDCTL_API"] = "3"
