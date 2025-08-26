@@ -1,3 +1,9 @@
+# Disable debug package for compiled binary
+%global debug_package %{nil}
+%global _enable_debug_package 0
+%global debug_package %{nil}
+%global __os_install_post /usr/lib/rpm/brp-compress %{nil}
+
 Name:           surf-ufm-pkeyd
 Version:        1.0.0
 Release:        1%{?dist}
@@ -9,9 +15,6 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      x86_64
 BuildRequires:  systemd-rpm-macros
-
-# Disable debug package for compiled binary
-%global debug_package %{nil}
 
 # No Python runtime dependencies needed for compiled version
 Requires:       systemd
