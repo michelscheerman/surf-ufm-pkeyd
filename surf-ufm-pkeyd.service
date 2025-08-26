@@ -23,7 +23,7 @@ ProtectControlGroups=yes
 
 # Resource limits
 MemoryMax=512M
-TasksMax=10
+TasksMax=100
 
 # Logging
 StandardOutput=journal
