@@ -530,10 +530,29 @@ Examples:
     if args.etcd_endpoints:
         etcd_endpoints = [e.strip() for e in args.etcd_endpoints.split(',')]
     
-    # Handle ETCD password prompting
+    # Handle ETCD password from multiple sources
     etcd_password = args.etcd_password
+    
+    # Try to read password from file if user provided but no password given
     if args.etcd_user and not etcd_password and not args.etcd_prompt_password:
-        etcd_password = getpass.getpass(f"ETCD password for user '{args.etcd_user}': ")
+        password_file = "/etc/pcocc/etcd-password"
+        try:
+            if os.path.exists(password_file):
+                with open(password_file, 'r') as f:
+                    etcd_password = f.read().strip()
+                    if etcd_password:
+                        print(f"Using etcd password from {password_file}")
+                    else:
+                        print(f"Warning: {password_file} is empty")
+                        etcd_password = None
+            else:
+                print(f"Password file {password_file} not found, prompting for password")
+        except (IOError, OSError) as e:
+            print(f"Could not read password file {password_file}: {e}")
+        
+        # If still no password, prompt for it
+        if not etcd_password:
+            etcd_password = getpass.getpass(f"ETCD password for user '{args.etcd_user}': ")
     elif args.etcd_prompt_password:
         # Let etcdctl prompt for password - don't provide it via command line
         etcd_password = None
