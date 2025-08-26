@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        SURF UFM PKey Daemon for InfiniBand partition management (compiled)
 
 License:        GPL-3.0-or-later
-URL:            https://github.com/michelscheerman/claude-code
+URL:            
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      x86_64

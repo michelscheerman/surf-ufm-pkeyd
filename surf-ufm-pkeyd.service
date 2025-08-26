@@ -7,7 +7,7 @@ Requires=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/surf_ufm_pkeyd.py monitor --ufm-user admin --etcd-user root --poll-interval 30 --no-ssl-verify
+ExecStart=/usr/bin/surf_ufm_pkeyd monitor --ufm-user admin --etcd-user root --poll-interval 30 --no-ssl-verify
 Restart=always
 RestartSec=10
 TimeoutStopSec=30
